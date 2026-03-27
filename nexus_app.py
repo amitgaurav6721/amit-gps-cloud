@@ -1,34 +1,70 @@
-# --- (ऊपर का सारा लॉगिन और Config कोड वही रहेगा) ---
+import streamlit as st
+import socket
+import psycopg2
+import time
+import pandas as pd
+from datetime import datetime
+from supabase import create_client, Client
+from streamlit_js_eval import get_geolocation
 
+# --- 1. CONFIG & SECRETS ---
+try:
+    DB_PASSWORD = st.secrets["DB_PASSWORD"]
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+except:
+    st.error("Secrets missing in Streamlit Cloud!")
+    st.stop()
+
+@st.cache_resource
+def get_supabase():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase = get_supabase()
+
+st.set_page_config(page_title="Amit GPS Universal", layout="wide")
+
+# --- 2. SESSION STATE ---
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'running' not in st.session_state: st.session_state.running = False
+
+# --- 3. LOGIN ---
+if not st.session_state.logged_in:
+    st.title("🔐 Amit GPS Login")
+    u = st.text_input("Email").strip().lower()
+    p = st.text_input("Password", type="password")
+    if st.button("Login"):
+        try:
+            res = supabase.auth.sign_in_with_password({"email": u, "password": p})
+            if res.user:
+                st.session_state.logged_in = True
+                st.session_state.user_email = u
+                st.rerun()
+        except: st.error("Login Failed")
+    st.stop()
+
+# --- 4. SIDEBAR & PROTOCOL SELECTOR ---
 with st.sidebar:
-    st.header("⚙️ Advanced Config")
-    # ✅ नया फीचर: प्रोटोकॉल चुनने का ऑप्शन
-    proto_choice = st.selectbox("📜 Choose Protocol", ["$PVT (EGAS)", "$GPRMC (WTEX)", "$,100 (WTEX)"])
+    st.header("⚙️ Settings")
+    # यूजर यहाँ से पेलोड चुन सकता है
+    proto = st.selectbox("📜 Select Payload Type", ["$PVT (EGAS)", "$GPRMC (WTEX)", "$,100 (WTEX)"])
     
-    imei = st.text_input("IMEI Number", "862567075041793")
+    imei = st.text_input("IMEI", "862567075041793")
     veh_no = st.text_input("Vehicle No", "BR04GA5974")
-    # ... (बाकी साइडबार कोड) ...
+    srv_ip = st.text_input("Server", "vlts.bihar.gov.in")
+    srv_port = st.number_input("Port", value=9999)
+    interval = st.slider("Interval (sec)", 0.5, 10.0, 1.0)
+    
+    st.divider()
+    loc_mode = st.radio("📍 Mode", ["Automatic", "Manual"])
+    if st.button("Logout"):
+        st.session_state.logged_in = False
+        st.rerun()
 
-# --- LOOPS (Inside Admin Panel) ---
-if st.session_state.running:
-    # ... (Database Connection) ...
-    while st.session_state.running:
-        now = datetime.now()
-        dt = now.strftime('%d%m%Y')
-        tm = now.strftime('%H%M%S')
-        
-        # ✅ प्रोटोकॉल के हिसाब से पेलोड बदलना
-        if proto_choice == "$PVT (EGAS)":
-            payload = f"PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,{dt},{tm},{lat_v:.7f},N,{lon_v:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3"
-            packet = f"${payload}*\r\n"
-        
-        elif proto_choice == "$GPRMC (WTEX)":
-            payload = f"GPRMC,WTEX,2.1.1,NR,01,L,{imei},{veh_no},1,{dt},{tm},{lat_v:.6f},N,{lon_v:.6f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3"
-            packet = f"${payload}*\r\n"
-            
-        elif proto_choice == "$,100 (WTEX)":
-            # पेलोड 3 का खास फॉर्मेट
-            payload = f",100,WTEX,1.0.01,NR,01,L,{imei},{veh_no},1,{dt},{tm},{lat_v:.7f},N,{lon_v:.7f},E,0.0,284.7,23,64.0,0.9,0.5,Airtel,0,1,11.9,3.8,0,C,10,405,70,1506,4c74,4c75,1506,10,10e1,1506,08,10e3,1506,07,2662,1506,06,0000,11,000021,A486"
-            packet = f"${payload}*\r\n"
+# --- 5. MAIN UI ---
+st.title(f"🛰️ Sending via: {proto}")
+col1, col2 = st.columns([1, 1.5])
 
-        # ... (Data भेजने का बाकी कोड) ...
+with col1:
+    loc = get_geolocation()
+    lat = st.number_input("Lat", value=float(loc['coords']['latitude'] if
