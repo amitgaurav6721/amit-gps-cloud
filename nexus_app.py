@@ -1,7 +1,6 @@
 import streamlit as st
 import socket
 import psycopg2
-from psycopg2 import pool
 import time
 import pandas as pd
 from datetime import datetime
@@ -14,27 +13,12 @@ try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 except:
-    st.error("Secrets missing! Check Streamlit Settings.")
+    st.error("Secrets missing in Streamlit!")
     st.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-st.set_page_config(page_title="Amit GPS Pro - Final", layout="wide")
-
-# --- INITIALIZE CONNECTION POOL ---
-if 'db_pool' not in st.session_state:
-    try:
-        st.session_state.db_pool = psycopg2.pool.SimpleConnectionPool(
-            1, 10,
-            host="db.grdgexcjyrhkoffimsuw.supabase.co",
-            database="postgres",
-            user="postgres",
-            password=DB_PASSWORD,
-            port="5432",
-            sslmode="require"
-        )
-    except Exception as e:
-        st.error(f"Pool Error: {e}")
+st.set_page_config(page_title="Amit GPS Pro - Fixed", layout="wide")
 
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'running' not in st.session_state: st.session_state.running = False
@@ -47,11 +31,14 @@ if not st.session_state.logged_in:
         p = st.text_input("Password", type="password")
         if st.form_submit_button("Login"):
             try:
-                supabase.auth.sign_in_with_password({"email": u, "password": p})
-                st.session_state.logged_in = True
-                st.session_state.user_email = u
-                st.rerun()
-            except: st.error("Invalid Login")
+                # Email confirm OFF hai, toh ab ye direct login hoga
+                res = supabase.auth.sign_in_with_password({"email": u, "password": p})
+                if res.user:
+                    st.session_state.logged_in = True
+                    st.session_state.user_email = u
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Login Failed: {e}")
     st.stop()
 
 # --- SIDEBAR ---
@@ -80,9 +67,8 @@ with col_l:
     lat_val = c1.number_input("Lat", value=float(curr_lat), format="%.7f", disabled=(loc_mode=="Automatic (GPS)"))
     lon_val = c2.number_input("Lon", value=float(curr_lon), format="%.7f", disabled=(loc_mode=="Automatic (GPS)"))
 
-    b1, b2 = st.columns(2)
-    if b1.button("🚀 START SENDING", type="primary", use_container_width=True): st.session_state.running = True
-    if b2.button("🛑 STOP ENGINE", type="secondary", use_container_width=True): st.session_state.running = False
+    if st.button("🚀 START SENDING", type="primary", use_container_width=True): st.session_state.running = True
+    if st.button("🛑 STOP ENGINE", type="secondary", use_container_width=True): st.session_state.running = False
     
     st.divider()
     status_msg = st.empty()
@@ -92,12 +78,20 @@ with col_r:
     map_df = pd.DataFrame({'lat': [lat_val], 'lon': [lon_val]})
     st.map(map_df, zoom=14)
 
-# --- TRANSMISSION ---
+# --- DATA SENDING LOGIC ---
 if st.session_state.running:
-    conn = None
     try:
-        conn = st.session_state.db_pool.getconn()
+        # Port 6543 (Pooler) use kar rahe hain connection error se bachne ke liye
+        conn = psycopg2.connect(
+            host="aws-0-ap-south-1.pooler.supabase.com", # <--- Apna naya Host yahan check karein
+            database="postgres",
+            user="postgres.grdgexcjyrhkoffimsuw", 
+            password=DB_PASSWORD,
+            port="6543",
+            sslmode="require"
+        )
         cur = conn.cursor()
+        
         while st.session_state.running:
             for i in range(1, 101, 20):
                 p_bar.progress(i)
@@ -121,6 +115,5 @@ if st.session_state.running:
             status_msg.info(f"Server: {server_res} | DB: ✅ LOGGED | Time: {now.strftime('%H:%M:%S')}")
             if not st.session_state.running: break
     except Exception as e:
-        st.error(f"Error: {e}")
-    finally:
-        if conn: st.session_state.db_pool.putconn(conn)
+        st.error(f"Conn Error: {e}")
+        st.session_state.running = False
