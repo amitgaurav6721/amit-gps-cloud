@@ -1,4 +1,5 @@
 streamlit
-streamlit-js-eval
 psycopg2-binary
 supabase
+pandas
+streamlit-js-eval
