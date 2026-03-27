@@ -2,91 +2,92 @@ import streamlit as st
 import socket
 import psycopg2
 import time
+import pandas as pd # Map के लिए ज़रूरी
 from datetime import datetime
 from supabase import create_client, Client
 from streamlit_js_eval import get_geolocation
 
-# --- SECRETS LOAD ---
+# --- CONFIG & SECRETS ---
 try:
     DB_PASSWORD = st.secrets["DB_PASSWORD"]
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 except:
-    st.error("Secrets missing in Streamlit Settings!")
+    st.error("Secrets missing! Please check Streamlit Settings.")
     st.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-st.set_page_config(page_title="Amit GPS Pro", layout="wide")
+st.set_page_config(page_title="Amit GPS Pro - Map View", layout="wide")
 
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'running' not in st.session_state: st.session_state.running = False
 
-# --- LOGIN ---
+# --- LOGIN SYSTEM ---
 if not st.session_state.logged_in:
     st.title("🔐 Amit GPS Login")
-    with st.form("login"):
-        u = st.text_input("Email")
-        p = st.text_input("Password", type="password")
+    with st.form("login_form"):
+        u_email = st.text_input("Email").strip().lower()
+        u_pwd = st.text_input("Password", type="password")
         if st.form_submit_button("Login"):
             try:
-                supabase.auth.sign_in_with_password({"email": u, "password": p})
-                st.session_state.logged_in = True
-                st.session_state.user_email = u
-                st.rerun()
-            except: st.error("Invalid Login")
+                auth = supabase.auth.sign_in_with_password({"email": u_email, "password": u_pwd})
+                if auth.user:
+                    st.session_state.logged_in = True
+                    st.session_state.user_email = u_email
+                    st.rerun()
+            except: st.error("Invalid Credentials")
     st.stop()
 
-# --- APP UI ---
-st.sidebar.write(f"Logged in: **{st.session_state.user_email}**")
+# --- SIDEBAR ---
+st.sidebar.info(f"User: {st.session_state.user_email}")
 if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
     st.rerun()
 
-# --- ADMIN SECTION ---
-if st.session_state.user_email == "amit@admin.com":
-    with st.sidebar.expander("⭐ Admin: Create User"):
-        n_e = st.text_input("New Email")
-        n_p = st.text_input("New Password")
-        if st.button("Register User"):
-            try:
-                supabase.auth.admin.create_user({"email": n_e, "password": n_p, "email_confirm": True})
-                st.success("Done!")
-            except Exception as e: st.error(e)
+# --- MAIN LAYOUT (Two Columns) ---
+st.title("🛰️ Amit GPS Live Tracking Center")
+col_ctrl, col_map = st.columns([1, 1]) # स्क्रीन को दो हिस्सों में बाँटा
 
-# --- GPS TRACKER PANEL (यह हिस्सा गायब था) ---
-st.title("🚀 Live GPS Tracker")
+with col_ctrl:
+    st.subheader("Controls")
+    loc = get_geolocation()
+    lat_now = loc['coords']['latitude'] if loc else 24.9194
+    lon_now = loc['coords']['longitude'] if loc else 83.7905
 
-# 1. Location Logic
-loc = get_geolocation()
-lat_now = loc['coords']['latitude'] if loc else 25.6501
-lon_now = loc['coords']['longitude'] if loc else 84.7851
+    lat_input = st.number_input("Latitude", value=float(lat_now), format="%.7f")
+    lon_input = st.number_input("Longitude", value=float(lon_now), format="%.7f")
 
-col1, col2 = st.columns(2)
-lat_val = col1.number_input("Latitude", value=float(lat_now), format="%.7f")
-lon_val = col2.number_input("Longitude", value=float(lon_now), format="%.7f")
+    c1, c2 = st.columns(2)
+    start = c1.button("🚀 START", type="primary", use_container_width=True)
+    stop = c2.button("🛑 STOP", type="secondary", use_container_width=True)
+    
+    if start: st.session_state.running = True
+    if stop: st.session_state.running = False
 
-# 2. Controls
-c1, c2 = st.columns(2)
-if c1.button("🚀 START ENGINE", type="primary"): st.session_state.running = True
-if c2.button("🛑 STOP ENGINE"): st.session_state.running = False
+    status_box = st.empty()
 
-# 3. Transmission
+with col_map:
+    st.subheader("Live Map View")
+    # Map डेटा तैयार करना
+    map_data = pd.DataFrame({'lat': [lat_input], 'lon': [lon_input]})
+    st.map(map_data, zoom=12) # यह स्क्रीन के दाईं तरफ मैप दिखाएगा
+
+# --- DATA TRANSMISSION ---
 if st.session_state.running:
-    progress = st.progress(0)
-    status = st.empty()
     try:
         conn = psycopg2.connect(host="db.grdgexcjyrhkoffimsuw.supabase.co", database="postgres", user="postgres", password=DB_PASSWORD, port="5432", sslmode="require")
         cur = conn.cursor()
+        
         while st.session_state.running:
-            for i in range(1, 101, 10):
-                progress.progress(i)
-                time.sleep(0.1)
-            
             now = datetime.now()
-            # Packet & DB Logic
-            payload = f"PVT,EGAS,2.1.1,NR,01,L,862567075041793,BR04GA5974,1,{now.strftime('%d%m%Y,%H%M%S')},{lat_val},N,{lon_val},E,0.0,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
-            cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", ("862567075041793", lat_val, lon_val, payload, "BR04GA5974"))
+            imei, v_no = "862567075041793", "BR04GA5974"
+            payload = f"PVT,EGAS,2.1.1,NR,01,L,{imei},{v_no},1,{now.strftime('%d%m%Y,%H%M%S')},{lat_input},N,{lon_input},E,0.0,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
+            
+            cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", (imei, lat_input, lon_input, payload, v_no))
             conn.commit()
-            status.success(f"Sent at {now.strftime('%H:%M:%S')}")
+            
+            status_box.success(f"✅ Packet Sent: {now.strftime('%H:%M:%S')}")
+            time.sleep(1) # 1 second interval
+            if not st.session_state.running: break
     except Exception as e: st.error(e)
