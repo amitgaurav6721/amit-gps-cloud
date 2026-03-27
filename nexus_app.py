@@ -6,71 +6,87 @@ from datetime import datetime
 from supabase import create_client, Client
 from streamlit_js_eval import get_geolocation
 
-# --- LOAD SECRETS FROM STREAMLIT ---
-# ये वैल्यूज़ आपके Streamlit Dashboard > Settings > Secrets से आएंगी
+# --- SECRETS LOAD ---
 try:
-    DB_HOST = "db.grdgexcjyrhkoffimsuw.supabase.co"
-    DB_NAME = "postgres"
-    DB_USER = "postgres"
-    DB_PORT = "5432"
     DB_PASSWORD = st.secrets["DB_PASSWORD"]
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-except Exception as e:
-    st.error("Secrets not found! Please add DB_PASSWORD, SUPABASE_URL, and SUPABASE_KEY in Streamlit Settings.")
+except:
+    st.error("Secrets missing in Streamlit Settings!")
     st.stop()
 
-# --- INITIALIZE CLIENTS ---
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def get_db_conn():
-    return psycopg2.connect(
-        host=DB_HOST, database=DB_NAME, user=DB_USER, 
-        password=DB_PASSWORD, port=DB_PORT, sslmode="require"
-    )
+st.set_page_config(page_title="Amit GPS Pro", layout="wide")
 
-st.set_page_config(page_title="Amit GPS Pro - Secure", layout="wide")
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'running' not in st.session_state: st.session_state.running = False
 
-# --- SESSION STATE ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user_email = ""
-if 'running' not in st.session_state:
-    st.session_state.running = False
-
-# --- LOGIN UI ---
+# --- LOGIN ---
 if not st.session_state.logged_in:
     st.title("🔐 Amit GPS Login")
-    with st.form("login_form"):
-        u_email = st.text_input("Email")
-        u_pwd = st.text_input("Password", type="password")
+    with st.form("login"):
+        u = st.text_input("Email")
+        p = st.text_input("Password", type="password")
         if st.form_submit_button("Login"):
             try:
-                res = supabase.auth.sign_in_with_password({"email": u_email, "password": u_pwd})
+                supabase.auth.sign_in_with_password({"email": u, "password": p})
                 st.session_state.logged_in = True
-                st.session_state.user_email = u_email
+                st.session_state.user_email = u
                 st.rerun()
-            except:
-                st.error("Login Failed! Check credentials.")
+            except: st.error("Invalid Login")
     st.stop()
 
-# --- MAIN APP (After Login) ---
-st.sidebar.success(f"User: {st.session_state.user_email}")
+# --- APP UI ---
+st.sidebar.write(f"Logged in: **{st.session_state.user_email}**")
 if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
     st.rerun()
 
-# --- ADMIN PANEL (Only for Super Admin) ---
-if st.session_state.user_email == "amit@admin.com": # अपना एडमिन ईमेल यहाँ लिखें
-    with st.sidebar.expander("⭐ Super Admin Panel"):
-        new_email = st.text_input("New User Email")
-        new_pass = st.text_input("New User Password")
-        if st.button("Create User"):
+# --- ADMIN SECTION ---
+if st.session_state.user_email == "amit@admin.com":
+    with st.sidebar.expander("⭐ Admin: Create User"):
+        n_e = st.text_input("New Email")
+        n_p = st.text_input("New Password")
+        if st.button("Register User"):
             try:
-                supabase.auth.admin.create_user({"email": new_email, "password": new_pass, "email_confirm": True})
-                st.success("User Created!")
-            except Exception as e: st.error(f"Error: {e}")
+                supabase.auth.admin.create_user({"email": n_e, "password": n_p, "email_confirm": True})
+                st.success("Done!")
+            except Exception as e: st.error(e)
 
-# --- GPS TRANSMISSION LOGIC ---
-st.header("🚀 Live GPS Tracker")
-# ... (पिछला Start/Stop और Progress Bar वाला कोड यहाँ रहेगा)
+# --- GPS TRACKER PANEL (यह हिस्सा गायब था) ---
+st.title("🚀 Live GPS Tracker")
+
+# 1. Location Logic
+loc = get_geolocation()
+lat_now = loc['coords']['latitude'] if loc else 25.6501
+lon_now = loc['coords']['longitude'] if loc else 84.7851
+
+col1, col2 = st.columns(2)
+lat_val = col1.number_input("Latitude", value=float(lat_now), format="%.7f")
+lon_val = col2.number_input("Longitude", value=float(lon_now), format="%.7f")
+
+# 2. Controls
+c1, c2 = st.columns(2)
+if c1.button("🚀 START ENGINE", type="primary"): st.session_state.running = True
+if c2.button("🛑 STOP ENGINE"): st.session_state.running = False
+
+# 3. Transmission
+if st.session_state.running:
+    progress = st.progress(0)
+    status = st.empty()
+    try:
+        conn = psycopg2.connect(host="db.grdgexcjyrhkoffimsuw.supabase.co", database="postgres", user="postgres", password=DB_PASSWORD, port="5432", sslmode="require")
+        cur = conn.cursor()
+        while st.session_state.running:
+            for i in range(1, 101, 10):
+                progress.progress(i)
+                time.sleep(0.1)
+            
+            now = datetime.now()
+            # Packet & DB Logic
+            payload = f"PVT,EGAS,2.1.1,NR,01,L,862567075041793,BR04GA5974,1,{now.strftime('%d%m%Y,%H%M%S')},{lat_val},N,{lon_val},E,0.0,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
+            cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", ("862567075041793", lat_val, lon_val, payload, "BR04GA5974"))
+            conn.commit()
+            status.success(f"Sent at {now.strftime('%H:%M:%S')}")
+    except Exception as e: st.error(e)
