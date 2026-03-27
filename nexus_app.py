@@ -16,31 +16,45 @@ except:
     st.error("Secrets missing!")
     st.stop()
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Initialize Supabase
+if 'supabase' not in st.session_state:
+    st.session_state.supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(page_title="Amit GPS Admin Console", layout="wide")
 
+# --- SESSION STATE INITIALIZATION ---
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'user_email' not in st.session_state: st.session_state.user_email = ""
+if 'running' not in st.session_state: st.session_state.running = False
 
-# --- LOGIN ---
+# --- LOGIN LOGIC (Fixed for Single Click) ---
 if not st.session_state.logged_in:
     st.title("🔐 Amit GPS Login")
-    with st.form("login"):
+    
+    # Form use karne se 'Enter' key bhi kaam karegi
+    with st.form("login_form", clear_on_submit=False):
         u = st.text_input("Email").strip().lower()
         p = st.text_input("Password", type="password")
-        if st.form_submit_button("Login"):
+        submit = st.form_submit_button("Login", use_container_width=True)
+        
+        if submit:
             try:
-                res = supabase.auth.sign_in_with_password({"email": u, "password": p})
+                # Login process
+                res = st.session_state.supabase.auth.sign_in_with_password({"email": u, "password": p})
                 if res.user:
                     st.session_state.logged_in = True
                     st.session_state.user_email = u
-                    st.rerun()
-            except: st.error("Invalid Credentials")
+                    st.rerun() # Turant screen update karne ke liye
+                else:
+                    st.error("Invalid Credentials")
+            except Exception as e:
+                st.error(f"Login Error: {e}")
     st.stop()
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuration")
+    st.info(f"Logged in as: {st.session_state.user_email}")
     imei = st.text_input("IMEI Number", "862567075041793")
     veh_no = st.text_input("Vehicle Number", "BR04GA5974")
     srv_ip = st.text_input("Server IP", "103.30.179.201")
@@ -48,8 +62,10 @@ with st.sidebar:
     interval = st.slider("Interval (sec)", 1.0, 10.0, 1.0)
     st.divider()
     loc_mode = st.radio("📍 Location Source", ["Automatic (GPS)", "Manual Input"], horizontal=True)
-    if st.button("Logout"):
+    
+    if st.button("Logout", type="secondary"):
         st.session_state.logged_in = False
+        st.session_state.user_email = ""
         st.rerun()
 
 # --- ADMIN CHECK ---
@@ -57,34 +73,27 @@ is_admin = (st.session_state.user_email == "amit@admin.com")
 
 if is_admin:
     st.title("🌟 Amit GPS Admin Dashboard")
-    # YAHAN HAI OPTION: Humne 3 Tabs bana diye hain
     tab1, tab2, tab3 = st.tabs(["🚀 Tracking", "📊 Database", "👤 User Management"])
     
     with tab3:
-        st.subheader("Add New User to System")
-        with st.form("add_user_form"):
-            new_email = st.text_input("New Email")
-            new_pass = st.text_input("New Password", type="password")
-            if st.form_submit_button("Create User"):
+        st.subheader("Add New User")
+        with st.form("new_user"):
+            n_email = st.text_input("New Email")
+            n_pass = st.text_input("New Password", type="password")
+            if st.form_submit_button("Create Account"):
                 try:
-                    # Admin privileges to create user
-                    supabase.auth.admin.create_user({
-                        "email": new_email,
-                        "password": new_pass,
-                        "email_confirm": True
-                    })
-                    st.success(f"User {new_email} added successfully!")
-                except Exception as e:
-                    st.error(f"Error creating user: {e}")
+                    st.session_state.supabase.auth.admin.create_user({"email": n_email, "password": n_pass, "email_confirm": True})
+                    st.success(f"User {n_email} created!")
+                except Exception as e: st.error(e)
 
     with tab2:
-        st.subheader("Live Database Records")
+        st.subheader("Database Logs")
         try:
             conn = psycopg2.connect(host="aws-1-ap-northeast-2.pooler.supabase.com", database="postgres", user="postgres.grdgexcjyrhkoffimsuw", password=DB_PASSWORD, port="6543", sslmode="require")
             df = pd.read_sql("SELECT created_at, imei, vehicle_no, latitude, longitude FROM gps_data ORDER BY created_at DESC LIMIT 20", conn)
             st.dataframe(df, use_container_width=True)
             conn.close()
-        except: st.warning("Database currently empty or connecting...")
+        except: st.warning("Connecting to database...")
 
     with tab1:
         col_l, col_r = st.columns([1.2, 1])
@@ -108,13 +117,13 @@ with col_r:
     map_df = pd.DataFrame({'lat': [lat_val], 'lon': [lon_val]})
     st.map(map_df, zoom=14)
 
-# --- SENDING LOGIC ---
-if st.session_state.get('running', False):
+# --- TRANSMISSION ---
+if st.session_state.running:
     try:
         conn = psycopg2.connect(host="aws-1-ap-northeast-2.pooler.supabase.com", database="postgres", user="postgres.grdgexcjyrhkoffimsuw", password=DB_PASSWORD, port="6543", sslmode="require")
         cur = conn.cursor()
         while st.session_state.running:
-            for i in range(1, 101, 20): p_bar.progress(i); time.sleep(interval/5)
+            for i in range(1, 101, 25): p_bar.progress(i); time.sleep(interval/4)
             now = datetime.now()
             payload = f"PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,{now.strftime('%d%m%Y,%H%M%S')},{lat_val},N,{lon_val},E,0.0,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
             packet = f"${payload}*BABA\r\n"
@@ -126,4 +135,6 @@ if st.session_state.get('running', False):
             conn.commit()
             status_msg.info(f"Server: {server_res} | DB: ✅ LOGGED | Time: {now.strftime('%H:%M:%S')}")
             if not st.session_state.running: break
-    except Exception as e: st.error(f"Error: {e}"); st.session_state.running = False
+    except Exception as e: 
+        st.error(f"Error: {e}")
+        st.session_state.running = False
