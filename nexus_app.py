@@ -39,16 +39,13 @@ def get_ais140_checksum(payload):
         checksum ^= ord(char)
     return f"{checksum:02X}"
 
-# --- 4. LOGIN LOGIC (Fixed Persistence) ---
+# --- 4. LOGIN LOGIC ---
 if not st.session_state.logged_in:
     st.title("🔐 Amit GPS Hybrid Login")
-    
-    # Form ka use values ko hold karne ke liye zaroori hai
     with st.form("login_gate"):
         u_input = st.text_input("Email").strip().lower()
         p_input = st.text_input("Password", type="password")
         submit_button = st.form_submit_button("Login", use_container_width=True)
-        
         if submit_button:
             if u_input and p_input:
                 try:
@@ -75,7 +72,6 @@ with st.sidebar:
     srv_ip = st.text_input("Server Host", "vlts.bihar.gov.in")
     srv_port = st.number_input("Port", value=9999)
     interval = st.slider("Interval (sec)", 0.5, 10.0, 1.0)
-    
     if st.button("Logout"):
         st.session_state.logged_in = False
         st.session_state.running = False
@@ -89,25 +85,24 @@ if st.session_state.user_email == "amit@admin.com":
         st.subheader("📡 GPS Control")
         lat_v = st.number_input("Lat", value=25.6509450, format="%.7f")
         lon_v = st.number_input("Lon", value=84.7847730, format="%.7f")
-        
         c1, c2 = st.columns(2)
         if c1.button("▶️ START ENGINE", type="primary", use_container_width=True):
             st.session_state.running = True
         if c2.button("⏹️ STOP ENGINE", use_container_width=True):
             st.session_state.running = False
             st.rerun()
-        
         status_msg = st.empty()
         p_bar = st.progress(0)
     with col_r:
         st.map(pd.DataFrame({'lat': [lat_v], 'lon': [lon_v]}), zoom=14)
 
-# --- 7. HYBRID DUAL LOOP ---
+# --- 7. HYBRID DUAL LOOP with LATENCY TIMER ---
 if st.session_state.running:
     try:
         conn = psycopg2.connect(host="aws-1-ap-northeast-2.pooler.supabase.com", database="postgres", user="postgres.grdgexcjyrhkoffimsuw", password=DB_PASSWORD, port="6543", sslmode="require")
         cur = conn.cursor()
         while st.session_state.running:
+            start_time = time.time() # Timer Shuru
             now = datetime.now()
             d, t = now.strftime('%d%m%Y'), now.strftime('%H%M%S')
             
@@ -128,7 +123,10 @@ if st.session_state.running:
             cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", (imei, lat_v, lon_v, packet_b.strip(), veh_no))
             conn.commit()
             
-            status_msg.info(f"Dual Packets Sent | {now.strftime('%H:%M:%S')}")
+            end_time = time.time() # Timer Khatam
+            latency = int((end_time - start_time) * 1000) # Milliseconds mein convert kiya
+            
+            status_msg.info(f"⚡ Dual Packets Sent | Time: {now.strftime('%H:%M:%S')} | Latency: {latency}ms")
             p_bar.progress(100)
             time.sleep(interval)
             p_bar.progress(0)
