@@ -25,7 +25,6 @@ supabase = get_supabase()
 st.set_page_config(page_title="Amit GPS Hybrid Console", layout="wide")
 
 # --- 2. SESSION STATE MANAGEMENT ---
-# Inhe top par rakhna zaroori hai
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user_email' not in st.session_state:
@@ -40,32 +39,26 @@ def get_ais140_checksum(payload):
         checksum ^= ord(char)
     return f"{checksum:02X}"
 
-# --- 4. LOGIN LOGIC (No-Error Version) ---
-def login():
-    st.title("🔐 Amit GPS Hybrid Login")
-    with st.form("login_form"):
-        u = st.text_input("Email").strip().lower()
-        p = st.text_input("Password", type="password")
-        if st.form_submit_button("Login", use_container_width=True):
-            try:
-                res = supabase.auth.sign_in_with_password({"email": u, "password": p})
-                if res.user:
-                    st.session_state.logged_in = True
-                    st.session_state.user_email = u
-                    st.success("Login Successful!")
-                    time.sleep(1) # Chhota sa delay
-                    st.rerun()
-                else:
-                    st.error("Invalid Credentials")
-            except:
-                st.error("Login Failed. Check Internet or Password.")
-
-# Check if logged in
+# --- 4. LOGIN LOGIC (Fixed Persistence) ---
 if not st.session_state.logged_in:
-    login()
-    st.stop() # Yahan script ruk jayegi jab tak login na ho
+    st.title("🔐 Amit GPS Hybrid Login")
+    # Form ke bajaye direct input use kar rahe hain stability ke liye
+    u = st.text_input("Email").strip().lower()
+    p = st.text_input("Password", type="password")
+    if st.button("Login", use_container_width=True):
+        try:
+            res = supabase.auth.sign_in_with_password({"email": u, "password": p})
+            if res.user:
+                st.session_state.logged_in = True
+                st.session_state.user_email = u
+                st.rerun() # Seedha dashboard par bhejega
+            else:
+                st.error("Invalid Credentials")
+        except:
+            st.error("Login Failed. Check Internet or Password.")
+    st.stop() # Dashboard niche hai, bina login ke wahan nahi pahunch sakte
 
-# --- 5. SIDEBAR CONFIG (Logged In Users Only) ---
+# --- 5. SIDEBAR CONFIG ---
 with st.sidebar:
     st.header("⚙️ Configuration")
     st.success(f"User: {st.session_state.user_email}")
@@ -75,10 +68,10 @@ with st.sidebar:
     srv_ip = st.text_input("Server Host", "vlts.bihar.gov.in")
     srv_port = st.number_input("Port", value=9999)
     interval = st.slider("Interval (sec)", 0.5, 10.0, 1.0)
+    
     if st.button("Logout"):
-        # Pura state clear karein
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        st.session_state.logged_in = False
+        st.session_state.running = False
         st.rerun()
 
 # --- 6. ADMIN DASHBOARD UI ---
@@ -111,11 +104,11 @@ if st.session_state.running:
             now = datetime.now()
             d, t = now.strftime('%d%m%Y'), now.strftime('%H%M%S')
             
-            p1 = f"PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,{d},{t},{lat_v},N,{lon_v},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
+            p1 = f"PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,{d},{t},{lat_v},N,{lon_v},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c8,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
             cs1 = get_ais140_checksum(p1)
             packet_a = f"${p1},{cs1}*\r\n"
             
-            p2 = f"PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{d}{t},{lat_v:.7f},N,{lon_v:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
+            p2 = f"PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{d}{t},{lat_v:.7f},N,{lon_v:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c8,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
             cs2 = get_ais140_checksum(p2)
             packet_b = f"${p2}{cs2}*\r\n"
             
