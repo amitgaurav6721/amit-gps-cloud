@@ -3,16 +3,28 @@ import socket
 import time
 from datetime import datetime
 
-# --- 1. SMART CHECKSUM LOGIC ---
-def get_bihar_checksum(payload, length=4):
+# --- 1. SMART LOGIC: 4-DIGIT CHECKSUM & PADDING ---
+def get_bihar_checksum(payload):
     checksum = 0
     for char in payload:
         checksum ^= ord(char)
-    return f"{checksum:0{length}X}"
+    return f"{checksum:04X}" # Exact 4-digit Hex as per working strings
 
-# --- 2. CONFIG & UI ---
-st.set_page_config(page_title="Amit GPS Hybrid Console", layout="wide")
-st.title("🛰️ Bihar VLTS Hybrid Bypass Console")
+def format_coord(val, is_lat=True):
+    # Bihar server leading zero mangta hai (e.g., 084... for Lon)
+    if is_lat:
+        return f"{val:08.6f}" # 28.123456
+    else:
+        return f"{val:09.6f}" # 084.123456
+
+# --- 2. CONFIG & TAG LIST ---
+st.set_page_config(page_title="Amit GPS Ultra Hybrid", layout="wide")
+
+# Excel/Portal se nikale gaye top Tags
+if 'extended_tags' not in st.session_state:
+    st.session_state.extended_tags = ["GRL", "ASPL", "WTEX", "EGAS", "VLT", "MENT", "BBOX", "TNGR", "RCON", "GPST"]
+
+st.title("🛰️ Bihar VLTS Master Console")
 
 with st.sidebar:
     st.header("⚙️ Global Settings")
@@ -22,77 +34,63 @@ with st.sidebar:
     srv_port = st.number_input("Port", value=9999)
     
     st.markdown("---")
+    # Future Tag Entry: Naya tag yahan se add karein
+    new_tag = st.text_input("➕ Add New Tag for Future:")
+    if st.button("Save Tag") and new_tag:
+        if new_tag.upper() not in st.session_state.extended_tags:
+            st.session_state.extended_tags.append(new_tag.upper())
+            st.success(f"Tag {new_tag} Added!")
+
     mode = st.radio("Select Mode:", ["Static (Manual)", "Experimental (Live Auto)"])
 
-# --- 3. SECTIONS ---
+# --- 3. MODES ---
 
-# --- SECTION A: STATIC MODE ---
 if mode == "Static (Manual)":
-    st.subheader("📝 Static String Lab")
-    st.info("Yahan Date/Time aur Checksum fix rahega. Sirf IMEI/Vehicle No badlein.")
-    
+    st.subheader("📝 Static Lab (Fixed Checksum)")
+    # Aapki working strings (DDE3/A486 fixed)
     static_templates = {
         "String 1 ($GPRMC)": f"$GPRMC,WTEX,2.1.1,NR,01,L,{imei},{veh_no},1,04022026,023800,25.290684,N,84.643164,E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*",
         "String 2 ($PVT)": f"$PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,04022026,023800,25.6501550,N,84.7851780,E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*",
-        "String 3 ($,100)": f"$,100,WTEX,1.0.01,NR,01,L,{imei},{veh_no},1,11062025,014226,25.6509430,N,84.7847740,E,0.0,284.7,23,64.0,0.9,0.5,Airtel,0,1,11.9,3.8,0,C,10,405,70,1506,4c74,4c75,1506,10,10e1,1506,08,10e3,1506,07,2662,1506,06,0000,11,000021,A486*"
     }
-    
-    selected_template = st.selectbox("Choose Template", list(static_templates.keys()))
-    manual_string = st.text_area("Edit Raw Packet:", value=static_templates[selected_template], height=100)
-    
-    if st.button("🚀 SEND STATIC PACKET"):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect((srv_ip, srv_port))
-                s.sendall((manual_string.strip() + "\r\n").encode('ascii'))
-                st.success("Sent Successfully!")
-        except Exception as e:
-            st.error(f"Error: {e}")
+    sel = st.selectbox("Template", list(static_templates.keys()))
+    raw_p = st.text_area("Packet:", value=static_templates[sel], height=100)
+    if st.button("🚀 SEND STATIC"):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((srv_ip, srv_port))
+            s.sendall((raw_p.strip() + "\r\n").encode('ascii'))
+            st.success("Static Packet Sent!")
 
-# --- SECTION B: EXPERIMENTAL LIVE MODE ---
 else:
-    st.subheader("🧪 Experimental Logic Rotator")
-    st.warning("Yeh mode automatic logic change karega agar data accept nahi hua.")
+    st.subheader("🧪 Live Auto-Logic Rotator")
+    col1, col2 = st.columns(2)
+    lat = col1.number_input("Lat", value=25.650945, format="%.6f")
+    lon = col2.number_input("Lon", value=84.784773, format="%.6f")
     
-    lat = st.number_input("Lat", value=25.6509450, format="%.7f")
-    lon = st.number_input("Lon", value=84.7847730, format="%.7f")
-    
-    if st.button("▶️ START EXPERIMENT"):
-        st.session_state.running = True
-        
-    if st.button("⏹️ STOP"):
-        st.session_state.running = False
+    if st.button("▶️ START EXPERIMENT"): st.session_state.running = True
+    if st.button("⏹️ STOP"): st.session_state.running = False
 
     if st.session_state.get('running', False):
-        status_box = st.empty()
-        log_box = st.empty()
-        
-        # Logics to rotate
-        logics = ["PVT_EGAS_2.1.1", "GPRMC_WTEX_2.1.1", "DOLLAR_100_1.0.01"]
+        st.info("Rotating Tags, Protocols, and Checksums...")
+        log_area = st.empty()
         idx = 0
-        
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((srv_ip, srv_port))
                 while st.session_state.running:
                     now = datetime.now()
                     d, t = now.strftime('%d%m%Y'), now.strftime('%H%M%S')
-                    current_logic = logics[idx % len(logics)]
                     
-                    # Constructing Experimental Packet
-                    if current_logic == "PVT_EGAS_2.1.1":
-                        body = f"PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,{d},{t},{lat:.7f},N,{lon:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
-                        packet = f"${body},{get_bihar_checksum(body, 4)}*\r\n"
-                    elif current_logic == "GPRMC_WTEX_2.1.1":
-                        body = f"GPRMC,WTEX,2.1.1,NR,01,L,{imei},{veh_no},1,{d},{t},{lat:.6f},N,{lon:.6f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
-                        packet = f"${body},{get_bihar_checksum(body, 4)}*\r\n"
-                    else: # Legacy 1.0.01
-                        body = f",100,WTEX,1.0.01,NR,01,L,{imei},{veh_no},1,{d},{t},{lat:.7f},N,{lon:.7f},E,0.0,284.7,23,64.0,0.9,0.5,Airtel,0,1,11.9,3.8,0,C,10,405,70,1506,4c74,4c75,1506,10,10e1,1506,08,10e3,1506,07,2662,1506,06,0000,11,000021"
-                        packet = f"${body},{get_bihar_checksum(body, 4)}*\r\n"
-
+                    # Logic Rotation
+                    tag = st.session_state.extended_tags[idx % len(st.session_state.extended_tags)]
+                    lat_f = format_coord(lat, True)
+                    lon_f = format_coord(lon, False)
+                    
+                    # Protocol 1: Standard PVT
+                    body = f"PVT,{tag},2.1.1,NR,01,L,{imei},{veh_no},1,{d},{t},{lat_f},N,{lon_f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
+                    packet = f"${body},{get_bihar_checksum(body)}*\r\n"
+                    
                     s.sendall(packet.encode('ascii'))
-                    status_box.info(f"Trying Logic: {current_logic} | Checksum: {get_bihar_checksum(body, 4)}")
-                    log_box.text(f"Sent: {packet.strip()}")
+                    log_area.code(f"Logic: {tag} | Packet: {packet.strip()}")
                     
                     idx += 1
                     time.sleep(2)
