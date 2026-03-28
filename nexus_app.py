@@ -37,7 +37,6 @@ with st.sidebar:
     veh_no = st.text_input("Vehicle", "BR04GA5974")
     srv_ip = st.text_input("Host", "vlts.bihar.gov.in")
     srv_port = st.number_input("Port", value=9999)
-    # Speed Control: 0.1 means 10 packets per second
     interval = st.slider("Latency Gap (Sec)", 0.05, 2.0, 0.20)
     
     st.markdown("---")
@@ -107,15 +106,17 @@ else:
 
     if st.session_state.running:
         log_placeholder = st.empty()
-        idx = 0
+        idx_key = "current_idx"
+        if idx_key not in st.session_state: st.session_state[idx_key] = 0
+        
         try:
-            # Persistent Connection for Super Speed
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(5)
                 s.connect((srv_ip, srv_port))
                 
                 while st.session_state.running:
-                    current_tag = selected_tags[idx % len(selected_tags)]
+                    # Logic: Get current tag from session index
+                    current_tag = selected_tags[st.session_state[idx_key] % len(selected_tags)]
                     t_start = time.time()
                     
                     now = datetime.now()
@@ -128,14 +129,15 @@ else:
                         latency = round((time.time() - t_start) * 1000, 2)
                         st.session_state.tag_status[current_tag] = "✅"
                         log_placeholder.success(f"🚀 SUPER CHARGED: {current_tag} | {latency}ms | Time: {t_live}")
-                    except Exception as e:
+                    except Exception:
                         st.session_state.tag_status[current_tag] = "❌"
                         st.error(f"Connection Lost on {current_tag}. Reconnecting...")
-                        break # Re-establish connection
+                        break 
                     
-                    idx += 1
+                    # Update index for NEXT tag
+                    st.session_state[idx_key] += 1
                     time.sleep(interval)
-                    st.rerun()
+                    st.rerun() # Refresh to show next tag in rotation
         except Exception as conn_err:
             st.warning(f"🔄 Server unreachable: {conn_err}. Retrying in 2s...")
             time.sleep(2)
