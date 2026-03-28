@@ -35,7 +35,7 @@ def log_to_supabase(imei, lat, lon, packet):
         "raw_packet": str(packet)
     }
     try:
-        requests.post(url, json=payload, headers=headers, timeout=1)
+        requests.post(url, json=payload, headers=headers, timeout=0.2)
     except:
         pass # Background mein fail ho toh tool na ruke
 
