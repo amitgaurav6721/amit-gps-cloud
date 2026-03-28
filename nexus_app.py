@@ -96,15 +96,18 @@ if st.session_state.user_email == "amit@admin.com":
     with col_r:
         st.map(pd.DataFrame({'lat': [lat_v], 'lon': [lon_v]}), zoom=14)
 
-# --- 7. HYBRID DUAL LOOP with LATENCY TIMER ---
+# --- 7. HYBRID DUAL LOOP (Optimized) ---
 if st.session_state.running:
     try:
         conn = psycopg2.connect(host="aws-1-ap-northeast-2.pooler.supabase.com", database="postgres", user="postgres.grdgexcjyrhkoffimsuw", password=DB_PASSWORD, port="6543", sslmode="require")
         cur = conn.cursor()
+        packet_count = 0 # Counter shuru
+        
         while st.session_state.running:
             start_time = time.time()
             now = datetime.now()
             d, t = now.strftime('%d%m%Y'), now.strftime('%H%M%S')
+            packet_count += 1
             
             p1 = f"PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,{d},{t},{lat_v},N,{lon_v},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
             cs1 = get_ais140_checksum(p1)
@@ -114,23 +117,31 @@ if st.session_state.running:
             cs2 = get_ais140_checksum(p2)
             packet_b = f"${p2}{cs2}*\r\n"
             
+            # 1. Server ko data hamesha bhejenge
             for p in [packet_a, packet_b]:
                 try:
                     with socket.create_connection((srv_ip, srv_port), timeout=1) as s:
                         s.sendall(p.encode('ascii'))
                 except: pass
             
-            cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", (imei, lat_v, lon_v, packet_b.strip(), veh_no))
-            conn.commit()
+            # 2. Database mein sirf har 10th packet save karenge
+            db_status = "Skipped"
+            if packet_count % 10 == 0:
+                try:
+                    cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", (imei, lat_v, lon_v, packet_b.strip(), veh_no))
+                    conn.commit()
+                    db_status = "Saved ✅"
+                except: db_status = "DB Error ❌"
             
             end_time = time.time()
             latency = int((end_time - start_time) * 1000)
             
-            status_msg.info(f"⚡ Dual Packets Sent | Time: {now.strftime('%H:%M:%S')} | Latency: {latency}ms")
+            status_msg.info(f"⚡ Packets: {packet_count} | Latency: {latency}ms | DB: {db_status}")
             p_bar.progress(100)
-            time.sleep(max(0, interval - (end_time - start_time))) # Interval adjusted for latency
+            time.sleep(max(0, interval - (end_time - start_time)))
             p_bar.progress(0)
             if not st.session_state.running: break
+            
     except Exception as e:
         st.error(f"Error: {e}")
         st.session_state.running = False
