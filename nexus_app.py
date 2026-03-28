@@ -28,7 +28,6 @@ def get_checksum(body):
     return f"{cs:02X}"
 
 def log_to_supabase(data):
-    """Saves to public.gps_logs table"""
     url = f"{SUPABASE_URL}/rest/v1/gps_logs"
     headers = {
         "apikey": SUPABASE_KEY,
@@ -62,13 +61,22 @@ if not st.session_state.authenticated:
                 login_user(u_email, u_pass)
     st.stop()
 
-# --- 4. DASHBOARD UI ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuration")
     imei_val = st.text_input("IMEI", "862567075041793")
     veh_no = st.text_input("Vehicle", "BR04GA5974")
     srv_ip = st.text_input("Host", "vlts.bihar.gov.in")
     srv_port = st.number_input("Port", value=9999)
+    
+    st.markdown("---")
+    st.subheader("➕ Custom Tag")
+    c_tag = st.text_input("New Tag Name").upper().strip()
+    if st.button("Add Tag", use_container_width=True):
+        if c_tag and c_tag not in st.session_state.extended_tags:
+            st.session_state.extended_tags.append(c_tag)
+            st.rerun()
+            
     if st.button("🚪 Logout", use_container_width=True):
         st.session_state.authenticated = False
         st.rerun()
@@ -76,6 +84,7 @@ with st.sidebar:
 st.title("🛰️ Bihar VLTS Live Console")
 tab1, tab2 = st.tabs(["🔄 Live Rotator", "📥 Static Bulk Mode"])
 
+# --- LIVE ROTATOR TAB ---
 with tab1:
     col_l, col_r = st.columns([2, 1])
     with col_l:
@@ -88,14 +97,23 @@ with tab1:
         if st.button("🚀 START LIVE"): st.session_state.running = True
         if st.button("⏹️ STOP LIVE"): st.session_state.running = False
 
+# --- STATIC BULK TAB ---
 with tab2:
     st.subheader("Manual Bulk Sender")
     col_s1, col_s2, col_s3 = st.columns(3)
     m_tag = col_s1.selectbox("Tag", st.session_state.extended_tags)
     m_count = col_s2.number_input("Count", min_value=1, value=10)
     m_gap = col_s3.number_input("Interval", min_value=0.1, value=1.0)
-    m_lat = st.number_input("Manual Lat", value=25.650945, format="%.6f")
-    m_lon = st.number_input("Manual Lon", value=84.784773, format="%.6f")
+    m_lat = st.number_input("Manual Lat", value=25.650945, format="%.6f", key="m_lat")
+    m_lon = st.number_input("Manual Lon", value=84.784773, format="%.6f", key="m_lon")
+    
+    # ✅ Feature: String Preview Wapas Aa Gaya
+    now_m = datetime.now()
+    body_m = f"PVT,{m_tag},2.1.1,NR,01,L,{imei_val},{veh_no},1,{now_m.strftime('%d%m%Y,%H%M%S')},{m_lat:08.6f},N,{m_lon:09.6f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83"
+    manual_pkt_preview = f"${body_m},{get_checksum(body_m)}*\r\n"
+    st.info("Manual Packet Preview:")
+    st.code(manual_pkt_preview.strip())
+
     if st.button("📤 START BULK"): st.session_state.manual_running = True
     if st.button("🛑 STOP BULK"): st.session_state.manual_running = False
 
@@ -104,20 +122,17 @@ log_area = st.empty()
 raw_area = st.empty()
 
 # --- 5. EXECUTION ENGINE ---
-
-# Persistent Socket Logic
 def run_transmission(target_tag, target_lat, target_lon, is_manual=False):
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(5)
             s.connect((srv_ip, srv_port))
             
-            # Loop handler
             count_limit = int(m_count) if is_manual else 999999
             current_count = 0
+            active_flag = 'manual_running' if is_manual else 'running'
             
-            while (st.session_state.running or st.session_state.manual_running) and current_count < count_limit:
-                # Determine tag for rotator vs manual
+            while st.session_state[active_flag] and current_count < count_limit:
                 tag = target_tag if is_manual else sel_tags[st.session_state.current_idx % len(sel_tags)]
                 now = datetime.now()
                 
@@ -128,7 +143,6 @@ def run_transmission(target_tag, target_lat, target_lon, is_manual=False):
                 s.sendall(pkt.encode('ascii'))
                 lat_ms = int((time.time() - start_t) * 1000)
                 
-                # UI & DB Logging
                 st.session_state.logs.insert(0, f"{now.strftime('%H:%M:%S')} | {'📥' if is_manual else '🟢'} {tag} | {lat_ms}ms")
                 log_area.code("\n".join(st.session_state.logs[:15]))
                 raw_area.code(pkt.strip())
@@ -139,9 +153,12 @@ def run_transmission(target_tag, target_lat, target_lon, is_manual=False):
                 })
                 
                 current_count += 1
-                st.session_state.current_idx += 1
+                if not is_manual: st.session_state.current_idx += 1
                 time.sleep(m_gap if is_manual else gap)
                 st.rerun()
+            
+            st.session_state[active_flag] = False
+            st.rerun()
     except Exception as e:
         st.error(f"Error: {e}")
         st.session_state.running = False
@@ -149,8 +166,6 @@ def run_transmission(target_tag, target_lat, target_lon, is_manual=False):
 
 if st.session_state.manual_running:
     run_transmission(m_tag, m_lat, m_lon, is_manual=True)
-    st.session_state.manual_running = False
-    st.rerun()
 
 if st.session_state.running:
     run_transmission(None, lat_live, lon_live, is_manual=False)
