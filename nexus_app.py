@@ -72,6 +72,7 @@ else:
     # --- DASHBOARD ---
     with st.sidebar:
         st.header("⚙️ Settings")
+        st.info(f"👤 Active Session")
         imei = st.text_input("IMEI", "862567075041793")
         veh_no = st.text_input("Vehicle", "BR04GA5974")
         srv_ip = st.text_input("Host", "vlts.bihar.gov.in")
@@ -79,16 +80,20 @@ else:
         gap = st.slider("Speed (Sec)", 0.05, 2.0, 0.50)
         if st.button("🚪 Log Out", use_container_width=True):
             st.session_state.authenticated = False
+            st.session_state.user_token = None
             st.rerun()
 
     st.title("🛰️ Bihar VLTS Console")
     lat = st.number_input("Lat", value=25.650945, format="%.6f")
     lon = st.number_input("Lon", value=84.784773, format="%.6f")
     
+    st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}))
+    
     selected_tags = [t for t in st.session_state.extended_tags if st.checkbox(f"{st.session_state.tag_status.get(t,'⚪')} {t}", value=True, key=f"t_{t}")]
     
-    if st.button("🚀 START"): st.session_state.running = True
-    if st.button("⏹️ STOP"): st.session_state.running = False
+    c1, c2 = st.columns(2)
+    if c1.button("🚀 START"): st.session_state.running = True
+    if c2.button("⏹️ STOP"): st.session_state.running = False
 
     if st.session_state.running:
         log_box = st.empty()
@@ -111,5 +116,5 @@ else:
                     st.session_state.current_idx += 1
                     time.sleep(gap)
                     st.rerun()
-        except:
+        except Exception as e:
             st.warning("🔄 Reconnecting..."); time.sleep(1); st.rerun()
