@@ -30,13 +30,12 @@ if 'user_email' not in st.session_state: st.session_state.user_email = ""
 if 'running' not in st.session_state: st.session_state.running = False
 if 'custom_running' not in st.session_state: st.session_state.custom_running = False
 
-# --- 3. HELPER FUNCTIONS (AIS-140 Checksum) ---
+# --- 3. HELPER FUNCTIONS ---
 def get_ais140_checksum(payload):
-    # Standard XOR Checksum logic for AIS-140
     checksum = 0
     for char in payload:
         checksum ^= ord(char)
-    return f"{checksum:02X}" # Hex format (e.g., DDE3)
+    return f"{checksum:02X}"
 
 # --- 4. LOGIN UI ---
 if not st.session_state.logged_in:
@@ -52,30 +51,25 @@ if not st.session_state.logged_in:
                     st.session_state.user_email = u
                     st.rerun()
                 else: st.error("Invalid Credentials")
-            except Exception as e:
-                st.error("Login Failed. Check Credentials.")
+            except: st.error("Login Failed.")
     st.stop()
 
 # --- 5. SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuration")
-    st.success(f"User: {st.session_state.user_email}")
-    comp_name = st.text_input("GPS Company Tag", "EGAS") 
-    imei = st.text_input("IMEI Number", "862567075041793")
-    veh_no = st.text_input("Vehicle Number", "BR04GA5974")
+    comp_name = st.text_input("GPS Company Tag", "WTEX") # Updated as per your screen
+    imei = st.text_input("IMEI Number", "862491076910809")
+    veh_no = st.text_input("Vehicle Number", "BR01GH9898")
     srv_ip = st.text_input("Server Host", "vlts.bihar.gov.in")
     srv_port = st.number_input("Port", value=9999)
     interval = st.slider("Interval (sec)", 0.5, 10.0, 1.0)
-    st.divider()
-    loc_mode = st.radio("📍 Location Source", ["Automatic (GPS)", "Manual Input"], horizontal=True)
+    loc_mode = st.radio("📍 Location Source", ["Automatic (GPS)", "Manual Input"], index=1)
     if st.button("Logout"):
         st.session_state.logged_in = False
         st.rerun()
 
 # --- 6. ADMIN UI ---
-is_admin = (st.session_state.user_email == "amit@admin.com")
-
-if is_admin:
+if st.session_state.user_email == "amit@admin.com":
     st.title("🌟 Amit GPS Admin Dashboard")
     tab1, tab2, tab3 = st.tabs(["🚀 Tracking Terminal", "📊 Database Records", "💻 Custom Auto-Terminal"])
     
@@ -84,37 +78,42 @@ if is_admin:
         with col_l:
             st.subheader("📡 GPS Control")
             loc = get_geolocation()
-            default_lat = float(loc['coords']['latitude']) if (loc and loc_mode == "Automatic (GPS)") else 24.9194
-            default_lon = float(loc['coords']['longitude']) if (loc and loc_mode == "Automatic (GPS)") else 83.7905
-            lat_v = st.number_input("Lat", value=default_lat, format="%.7f", disabled=(loc_mode=="Automatic (GPS)"))
-            lon_v = st.number_input("Lon", value=default_lon, format="%.7f", disabled=(loc_mode=="Automatic (GPS)"))
+            lat_v = st.number_input("Lat", value=25.6509450, format="%.7f")
+            lon_v = st.number_input("Lon", value=84.7847730, format="%.7f")
             
-            if st.button("▶️ START AUTOMATIC", type="primary", use_container_width=True): st.session_state.running = True
-            if st.button("⏹️ STOP ENGINE", type="secondary", use_container_width=True): st.session_state.running = False
+            if st.button("▶️ START AUTOMATIC", type="primary"): st.session_state.running = True
+            if st.button("⏹️ STOP ENGINE"): st.session_state.running = False
             
             status_msg = st.empty()
             p_bar = st.progress(0)
         
         with col_r:
-            st.subheader("🗺️ Live Map")
             st.map(pd.DataFrame({'lat': [lat_v], 'lon': [lon_v]}), zoom=14)
 
-    with tab2:
-        st.subheader("Live Database Logs")
-        try:
-            conn = psycopg2.connect(host="aws-1-ap-northeast-2.pooler.supabase.com", database="postgres", user="postgres.grdgexcjyrhkoffimsuw", password=DB_PASSWORD, port="6543", sslmode="require")
-            df = pd.read_sql("SELECT created_at, imei, vehicle_no, latitude, longitude, raw_packet FROM gps_data ORDER BY created_at DESC LIMIT 20", conn)
-            st.dataframe(df, use_container_width=True)
-            conn.close()
-        except: st.warning("Database Connection Waiting...")
-
-    with tab3:
-        st.subheader("🤖 Auto-Custom Packet")
-        # Default AIS-140 dynamic packet for preview
-        now_c = datetime.now()
-        payload_c = f"PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{now_c.strftime('%d%m%Y')},{now_c.strftime('%H%M%S')},24.9194,N,83.7905,E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
-        cs_c = get_ais140_checksum(payload_c)
-        custom_packet_format = f"${payload_c},{cs_c}*\r\n"
-        
-        c_msg = st.text_area("Packet to Loop", value=custom_packet_format, height=150)
-        if st.button("▶️ START CUSTOM"): st.session
+# --- 7. BACKGROUND LOOP (FIXED PAYLOAD) ---
+if st.session_state.running:
+    try:
+        conn = psycopg2.connect(host="aws-1-ap-northeast-2.pooler.supabase.com", database="postgres", user="postgres.grdgexcjyrhkoffimsuw", password=DB_PASSWORD, port="6543", sslmode="require")
+        cur = conn.cursor()
+        while st.session_state.running:
+            now = datetime.now()
+            # As per your requirement: No comma before Checksum
+            payload = f"PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{now.strftime('%d%m%Y,%H%M%S')},{lat_v:.7f},N,{lon_v:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
+            cs = get_ais140_checksum(payload)
+            final_packet = f"${payload},{cs}*\r\n" # Fixed format
+            
+            try:
+                with socket.create_connection((srv_ip, srv_port), timeout=1) as s:
+                    s.sendall(final_packet.encode('ascii'))
+                res_text = f"✅ SENT TO SERVER"
+            except: res_text = "❌ SERVER ERROR"
+            
+            cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", (imei, lat_v, lon_v, final_packet.strip(), veh_no))
+            conn.commit()
+            status_msg.info(f"{res_text} | CS: {cs}")
+            p_bar.progress(100)
+            time.sleep(interval)
+            p_bar.progress(0)
+    except Exception as e:
+        st.error(f"DB Error: {e}")
+        st.session_state.running = False
