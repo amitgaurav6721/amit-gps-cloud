@@ -24,7 +24,7 @@ supabase = get_supabase()
 
 st.set_page_config(page_title="Amit GPS Pro - Master Console", layout="wide")
 
-# --- 2. SESSION STATE MANAGEMENT ---
+# --- 2. SESSION STATE ---
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_email' not in st.session_state: st.session_state.user_email = ""
 if 'running' not in st.session_state: st.session_state.running = False
@@ -44,26 +44,22 @@ if not st.session_state.logged_in:
                     st.session_state.user_email = u
                     st.rerun()
                 else: st.error("Invalid Credentials")
-            except: st.error("Login Failed. Check Internet or User.")
+            except Exception as e:
+                st.error("Login Failed. Check Credentials.")
     st.stop()
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuration")
     st.success(f"User: {st.session_state.user_email}")
-    
-    # --- YAHAN SE COMPANY NAME CHANGE HOGA ---
     comp_name = st.text_input("GPS Company Tag", "EGAS") 
-    
     imei = st.text_input("IMEI Number", "862567075041793")
     veh_no = st.text_input("Vehicle Number", "BR04GA5974")
     srv_ip = st.text_input("Server Host", "vlts.bihar.gov.in")
     srv_port = st.number_input("Port", value=9999)
     interval = st.slider("Interval (sec)", 0.5, 10.0, 1.0)
-    
     st.divider()
     loc_mode = st.radio("📍 Location Source", ["Automatic (GPS)", "Manual Input"], horizontal=True)
-    
     if st.button("Logout"):
         st.session_state.logged_in = False
         st.rerun()
@@ -80,16 +76,15 @@ if is_admin:
         with col_l:
             st.subheader("📡 GPS Control")
             loc = get_geolocation()
-            
             default_lat = float(loc['coords']['latitude']) if (loc and loc_mode == "Automatic (GPS)") else 24.9194
             default_lon = float(loc['coords']['longitude']) if (loc and loc_mode == "Automatic (GPS)") else 83.7905
-            
             lat_v = st.number_input("Lat", value=default_lat, format="%.7f", disabled=(loc_mode=="Automatic (GPS)"))
             lon_v = st.number_input("Lon", value=default_lon, format="%.7f", disabled=(loc_mode=="Automatic (GPS)"))
             
-            if st.button("▶️ START AUTOMATIC", type="primary", use_container_width=True): st.session_state.running = True
-            if st.button("⏹️ STOP ENGINE", type="secondary", use_container_width=True): st.session_state.running = False
+            if st.button("▶️ START AUTOMATIC", type="primary"): st.session_state.running = True
+            if st.button("⏹️ STOP ENGINE"): st.session_state.running = False
             
+            # Ye placeholders confirmation ke liye hain
             status_msg = st.empty()
             p_bar = st.progress(0)
         
@@ -104,45 +99,43 @@ if is_admin:
             df = pd.read_sql("SELECT created_at, imei, vehicle_no, latitude, longitude, raw_packet FROM gps_data ORDER BY created_at DESC LIMIT 20", conn)
             st.dataframe(df, use_container_width=True)
             conn.close()
-        except: st.warning("Connecting to database...")
+        except: st.warning("Database Connection Waiting...")
 
     with tab3:
         st.subheader("🤖 Auto-Custom Packet")
-        # Packet format updated with comp_name
         current_ts = datetime.now().strftime('%d%m%Y,%H%M%S')
         custom_packet_format = f"$PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{current_ts},24.9194,N,83.7905,E,0.0,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041*BABA\r\n"
-        
         c_msg = st.text_area("Packet to Loop", value=custom_packet_format, height=150)
-        c1, c2 = st.columns(2)
-        if c1.button("▶️ START CUSTOM", key="c_on"): st.session_state.custom_running = True
-        if c2.button("⏹️ STOP CUSTOM", key="c_off"): st.session_state.custom_running = False
+        if st.button("▶️ START CUSTOM"): st.session_state.custom_running = True
+        if st.button("⏹️ STOP CUSTOM"): st.session_state.custom_running = False
         c_stat = st.empty()
 
-# --- 6. BACKGROUND LOOPS (Fixed Logic) ---
-
+# --- 6. BACKGROUND LOOPS (Fixing Progress Bar & Logic) ---
 if st.session_state.running:
     try:
         conn = psycopg2.connect(host="aws-1-ap-northeast-2.pooler.supabase.com", database="postgres", user="postgres.grdgexcjyrhkoffimsuw", password=DB_PASSWORD, port="6543", sslmode="require")
         cur = conn.cursor()
         while st.session_state.running:
-            p_bar.progress(100)
             now = datetime.now()
-            # Yahan comp_name sidebar se automatic uthayega
             payload = f"PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{now.strftime('%d%m%Y,%H%M%S')},{lat_v},N,{lon_v},E,0.0,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
             packet = f"${payload}*BABA\r\n"
+            
             try:
-                with socket.create_connection((srv_ip, srv_port), timeout=1) as s: 
+                with socket.create_connection((srv_ip, srv_port), timeout=1) as s:
                     s.sendall(packet.encode('ascii'))
-                res = "✅ SENT"
-            except: res = "❌ FAIL"
+                res_text = "✅ DATA SENT TO SERVER"
+            except: res_text = "❌ SERVER CONNECTION FAILED"
             
             cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", (imei, lat_v, lon_v, packet.strip(), veh_no))
             conn.commit()
-            status_msg.info(f"Server: {res} | Co: {comp_name} | Time: {now.strftime('%H:%M:%S')}")
+            
+            # Yahan update hoga status aur progress bar
+            status_msg.info(f"{res_text} | {now.strftime('%H:%M:%S')}")
+            p_bar.progress(100)
             time.sleep(interval)
-            if not st.session_state.running: break
+            p_bar.progress(0)
     except Exception as e:
-        st.error(f"DB Error: {e}")
+        st.error(f"Fatal DB Error: {e}")
         st.session_state.running = False
 
 if st.session_state.custom_running:
@@ -150,9 +143,8 @@ if st.session_state.custom_running:
         while st.session_state.custom_running:
             with socket.create_connection((srv_ip, srv_port), timeout=2) as s:
                 s.sendall(c_msg.encode('ascii'))
-            c_stat.success(f"🚀 Co: {comp_name} | Sent at {datetime.now().strftime('%H:%M:%S')}")
+            c_stat.success(f"🚀 Custom Packet Sent: {datetime.now().strftime('%H:%M:%S')}")
             time.sleep(interval)
-            if not st.session_state.custom_running: break
     except Exception as e:
         st.error(f"Socket Error: {e}")
         st.session_state.custom_running = False
