@@ -71,12 +71,19 @@ with st.sidebar:
     srv_port = st.number_input("Port", value=9999)
     
     st.markdown("---")
-    new_tag = st.text_input("Add Custom Tag").upper().strip()
-    if st.button("Add Tag") and new_tag:
-        if new_tag not in st.session_state.extended_tags:
-            st.session_state.extended_tags.append(new_tag)
+    st.subheader("➕ Custom Tag")
+    c_tag = st.text_input("New Tag Name (e.g. ABCD)").upper().strip()
+    if st.button("Add Tag", use_container_width=True):
+        if c_tag and c_tag not in st.session_state.extended_tags:
+            st.session_state.extended_tags.append(c_tag)
+            st.success(f"Added {c_tag}")
             st.rerun()
+        elif not c_tag:
+            st.warning("Enter a tag name")
+        else:
+            st.info("Tag already exists")
 
+    st.markdown("---")
     if st.button("🚪 Logout", use_container_width=True):
         st.session_state.authenticated = False
         st.rerun()
@@ -103,7 +110,8 @@ with tab1:
 with tab2:
     st.subheader("Manual Bulk Sender")
     col_s1, col_s2, col_s3 = st.columns(3)
-    m_tag = col_s1.selectbox("Tag", st.session_state.extended_tags, key="m_tag")
+    # Custom tags ab dropdown mein bhi aayenge automatically
+    m_tag = col_s1.selectbox("Select Tag", st.session_state.extended_tags, key="m_tag")
     m_count = col_s2.number_input("Packets Count", min_value=1, value=10)
     m_gap = col_s3.number_input("Interval (Sec)", min_value=0.1, value=1.0)
     
@@ -119,7 +127,7 @@ st.markdown("---")
 col_log, col_raw = st.columns([3, 2])
 with col_log:
     st.subheader("📡 Status & Logs")
-    m_progress = st.empty() # Progress indicator
+    m_progress = st.empty() 
     log_area = st.empty()
 with col_raw:
     st.subheader("📦 Last Raw Packet")
@@ -132,16 +140,12 @@ if st.session_state.manual_running:
         now = datetime.now()
         body = f"PVT,{m_tag},2.1.1,NR,01,L,{imei_val},{veh_no},1,{now.strftime('%d%m%Y,%H%M%S')},{m_lat:08.6f},N,{m_lon:09.6f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83"
         pkt = f"${body},{get_checksum(body)}*\r\n"
-        
         ok, res_ms = send_to_server(srv_ip, srv_port, pkt)
         sent_count += 1
-        
-        # UI Updates
-        m_progress.info(f"📤 Sending Packet {sent_count}/{m_count} | Status: {res_ms}")
+        m_progress.info(f"📤 Manual Send: {sent_count}/{m_count} | Status: {res_ms}")
         st.session_state.logs.insert(0, f"{now.strftime('%H:%M:%S')} | 📥 MANUAL {m_tag} | {res_ms}")
         log_area.code("\n".join(st.session_state.logs[:15]))
         raw_area.code(pkt.strip())
-        
         time.sleep(m_gap)
         if sent_count >= m_count: st.session_state.manual_running = False
     st.rerun()
@@ -156,7 +160,6 @@ if st.session_state.running:
             now = datetime.now()
             body = f"PVT,{tag},2.1.1,NR,01,L,{imei_val},{veh_no},1,{now.strftime('%d%m%Y')},{now.strftime('%H%M%S')},{lat_val:08.6f},N,{lon_val:09.6f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83"
             pkt = f"${body},{get_checksum(body)}*\r\n"
-            
             ok, res_ms = send_to_server(srv_ip, srv_port, pkt)
             if ok:
                 st.session_state.tag_status[tag] = "✅"
@@ -164,7 +167,6 @@ if st.session_state.running:
             else:
                 st.session_state.tag_status[tag] = "❌"
                 st.session_state.logs.insert(0, f"{now.strftime('%H:%M:%S')} | 🔴 {tag} | TIMEOUT")
-
             log_area.code("\n".join(st.session_state.logs[:15]))
             raw_area.code(pkt.strip())
             st.session_state.current_idx += 1
