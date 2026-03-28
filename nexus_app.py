@@ -30,7 +30,15 @@ if 'user_email' not in st.session_state: st.session_state.user_email = ""
 if 'running' not in st.session_state: st.session_state.running = False
 if 'custom_running' not in st.session_state: st.session_state.custom_running = False
 
-# --- 3. LOGIN UI ---
+# --- 3. HELPER FUNCTIONS (AIS-140 Checksum) ---
+def get_ais140_checksum(payload):
+    # Standard XOR Checksum logic for AIS-140
+    checksum = 0
+    for char in payload:
+        checksum ^= ord(char)
+    return f"{checksum:02X}" # Hex format (e.g., DDE3)
+
+# --- 4. LOGIN UI ---
 if not st.session_state.logged_in:
     st.title("🔐 Amit GPS Login")
     with st.form("login_form"):
@@ -48,7 +56,7 @@ if not st.session_state.logged_in:
                 st.error("Login Failed. Check Credentials.")
     st.stop()
 
-# --- 4. SIDEBAR ---
+# --- 5. SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuration")
     st.success(f"User: {st.session_state.user_email}")
@@ -64,7 +72,7 @@ with st.sidebar:
         st.session_state.logged_in = False
         st.rerun()
 
-# --- 5. ADMIN UI ---
+# --- 6. ADMIN UI ---
 is_admin = (st.session_state.user_email == "amit@admin.com")
 
 if is_admin:
@@ -81,10 +89,9 @@ if is_admin:
             lat_v = st.number_input("Lat", value=default_lat, format="%.7f", disabled=(loc_mode=="Automatic (GPS)"))
             lon_v = st.number_input("Lon", value=default_lon, format="%.7f", disabled=(loc_mode=="Automatic (GPS)"))
             
-            if st.button("▶️ START AUTOMATIC", type="primary"): st.session_state.running = True
-            if st.button("⏹️ STOP ENGINE"): st.session_state.running = False
+            if st.button("▶️ START AUTOMATIC", type="primary", use_container_width=True): st.session_state.running = True
+            if st.button("⏹️ STOP ENGINE", type="secondary", use_container_width=True): st.session_state.running = False
             
-            # Ye placeholders confirmation ke liye hain
             status_msg = st.empty()
             p_bar = st.progress(0)
         
@@ -103,48 +110,11 @@ if is_admin:
 
     with tab3:
         st.subheader("🤖 Auto-Custom Packet")
-        current_ts = datetime.now().strftime('%d%m%Y,%H%M%S')
-        custom_packet_format = f"$PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{current_ts},24.9194,N,83.7905,E,0.0,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041*BABA\r\n"
+        # Default AIS-140 dynamic packet for preview
+        now_c = datetime.now()
+        payload_c = f"PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{now_c.strftime('%d%m%Y')},{now_c.strftime('%H%M%S')},24.9194,N,83.7905,E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
+        cs_c = get_ais140_checksum(payload_c)
+        custom_packet_format = f"${payload_c},{cs_c}*\r\n"
+        
         c_msg = st.text_area("Packet to Loop", value=custom_packet_format, height=150)
-        if st.button("▶️ START CUSTOM"): st.session_state.custom_running = True
-        if st.button("⏹️ STOP CUSTOM"): st.session_state.custom_running = False
-        c_stat = st.empty()
-
-# --- 6. BACKGROUND LOOPS (Fixing Progress Bar & Logic) ---
-if st.session_state.running:
-    try:
-        conn = psycopg2.connect(host="aws-1-ap-northeast-2.pooler.supabase.com", database="postgres", user="postgres.grdgexcjyrhkoffimsuw", password=DB_PASSWORD, port="6543", sslmode="require")
-        cur = conn.cursor()
-        while st.session_state.running:
-            now = datetime.now()
-            payload = f"PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{now.strftime('%d%m%Y,%H%M%S')},{lat_v},N,{lon_v},E,0.0,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
-            packet = f"${payload}*BABA\r\n"
-            
-            try:
-                with socket.create_connection((srv_ip, srv_port), timeout=1) as s:
-                    s.sendall(packet.encode('ascii'))
-                res_text = "✅ DATA SENT TO SERVER"
-            except: res_text = "❌ SERVER CONNECTION FAILED"
-            
-            cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", (imei, lat_v, lon_v, packet.strip(), veh_no))
-            conn.commit()
-            
-            # Yahan update hoga status aur progress bar
-            status_msg.info(f"{res_text} | {now.strftime('%H:%M:%S')}")
-            p_bar.progress(100)
-            time.sleep(interval)
-            p_bar.progress(0)
-    except Exception as e:
-        st.error(f"Fatal DB Error: {e}")
-        st.session_state.running = False
-
-if st.session_state.custom_running:
-    try:
-        while st.session_state.custom_running:
-            with socket.create_connection((srv_ip, srv_port), timeout=2) as s:
-                s.sendall(c_msg.encode('ascii'))
-            c_stat.success(f"🚀 Custom Packet Sent: {datetime.now().strftime('%H:%M:%S')}")
-            time.sleep(interval)
-    except Exception as e:
-        st.error(f"Socket Error: {e}")
-        st.session_state.custom_running = False
+        if st.button("▶️ START CUSTOM"): st.session
