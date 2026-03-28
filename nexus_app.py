@@ -52,14 +52,21 @@ def login_user(email, password):
 
 # --- 3. LOGIN SCREEN ---
 if not st.session_state.authenticated:
-    st.markdown("<h1 style='text-align: center;'>🛰️ Amit GPS Master Hybrid</h1>", unsafe_with_html=True)
+    st.markdown(
+        "<h1 style='text-align: center;'>🛰️ Amit GPS Master Hybrid</h1>",
+        unsafe_allow_html=True
+    )
+
     _, col2, _ = st.columns([1, 2, 1])
+
     with col2:
         with st.form("login_form"):
             u_email = st.text_input("Email", value="amit@admin.com")
             u_pass = st.text_input("Password", type="password")
+
             if st.form_submit_button("🚪 Login", use_container_width=True):
                 login_user(u_email, u_pass)
+
     st.stop()
 
 # --- 4. SIDEBAR ---
