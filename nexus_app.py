@@ -12,8 +12,8 @@ try:
     DB_PASSWORD = st.secrets["DB_PASSWORD"]
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-except:
-    st.error("Secrets missing! Check Streamlit Settings.")
+except Exception as e:
+    st.error(f"Secrets missing or corrupted: {e}")
     st.stop()
 
 @st.cache_resource
@@ -39,24 +39,26 @@ def get_ais140_checksum(payload):
         checksum ^= ord(char)
     return f"{checksum:02X}"
 
-# --- 4. LOGIN LOGIC (Fixed Persistence) ---
+# --- 4. LOGIN LOGIC (With Debugging Error) ---
 if not st.session_state.logged_in:
     st.title("🔐 Amit GPS Hybrid Login")
-    # Form ke bajaye direct input use kar rahe hain stability ke liye
     u = st.text_input("Email").strip().lower()
     p = st.text_input("Password", type="password")
+    
     if st.button("Login", use_container_width=True):
         try:
+            # Asali authentication yahan ho rahi hai
             res = supabase.auth.sign_in_with_password({"email": u, "password": p})
             if res.user:
                 st.session_state.logged_in = True
                 st.session_state.user_email = u
-                st.rerun() # Seedha dashboard par bhejega
+                st.rerun() 
             else:
-                st.error("Invalid Credentials")
-        except:
-            st.error("Login Failed. Check Internet or Password.")
-    st.stop() # Dashboard niche hai, bina login ke wahan nahi pahunch sakte
+                st.error("Authentication failed: No user found.")
+        except Exception as e:
+            # Yahan ab aapko "Login Failed" ki jagah asli reason dikhega
+            st.error(f"🚨 Login Error Detail: {e}")
+    st.stop() 
 
 # --- 5. SIDEBAR CONFIG ---
 with st.sidebar:
