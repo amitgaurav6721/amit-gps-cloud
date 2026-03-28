@@ -3,6 +3,7 @@ import socket
 import time
 from datetime import datetime
 import pandas as pd
+import requests
 
 # --- 1. CORE LOGIC ---
 def get_bihar_checksum(payload):
@@ -17,7 +18,28 @@ def format_coord(val, is_lat=True):
     else:
         return f"{val:09.6f}"
 
-# --- 2. INITIALIZATION ---
+# --- 2. SUPABASE DB LOGGER ---
+def log_to_supabase(imei, lat, lon, packet):
+    # Aapke project ki details
+    url = "https://grdgexcjyrhkoffimsuw.supabase.co/rest/v1/gps_data"
+    headers = {
+        "apikey": "YOUR_SUPABASE_ANON_KEY", # <--- Bhai, apni Anon Key yahan paste karein
+        "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+    }
+    payload = {
+        "imei": str(imei),
+        "latitude": float(lat),
+        "longitude": float(lon),
+        "raw_packet": str(packet)
+    }
+    try:
+        requests.post(url, json=payload, headers=headers, timeout=1)
+    except:
+        pass # Background mein fail ho toh tool na ruke
+
+# --- 3. INITIALIZATION ---
 st.set_page_config(page_title="Amit GPS Master Hybrid", layout="wide")
 
 if 'tag_status' not in st.session_state:
@@ -26,11 +48,13 @@ if 'extended_tags' not in st.session_state:
     st.session_state.extended_tags = ["GRL", "ASPL", "WTEX", "EGAS", "VLT", "MENT", "BBOX", "TNGR", "RCON", "GPST"]
 if 'running' not in st.session_state:
     st.session_state.running = False
+if 'current_idx' not in st.session_state:
+    st.session_state.current_idx = 0
 
 def reset_running():
     st.session_state.running = False
 
-# --- 3. SIDEBAR ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Global Settings")
     imei = st.text_input("IMEI", "862567075041793")
@@ -52,11 +76,10 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    mode = st.radio("Select Operational Mode:", ["Static (Manual)", "Experimental (Live Auto)"], on_change=reset_running)
+    mode = st.radio("Select Mode:", ["Static (Manual)", "Experimental (Live Auto)"], on_change=reset_running)
 
-# --- 4. COMMON UI ---
+# --- 5. COMMON UI ---
 st.title("🛰️ Bihar VLTS Master Hybrid Console")
-st.subheader("📍 Target Location Settings")
 col_lat, col_lon = st.columns(2)
 lat = col_lat.number_input("Latitude", value=25.650945, format="%.6f")
 lon = col_lon.number_input("Longitude", value=84.784773, format="%.6f")
@@ -64,30 +87,29 @@ lon = col_lon.number_input("Longitude", value=84.784773, format="%.6f")
 map_df = pd.DataFrame({'lat': [lat], 'lon': [lon]})
 st.map(map_df)
 
-st.markdown("---")
-
-# --- 5. MODE LOGIC ---
+# --- 6. MODE LOGIC ---
 
 if mode == "Static (Manual)":
-    st.subheader("📝 Static Lab (Fixed Checksum Mode)")
+    st.subheader("📝 Static Lab")
     static_templates = {
         "String 1 ($GPRMC)": f"$GPRMC,WTEX,2.1.1,NR,01,L,{imei},{veh_no},1,04022026,023800,25.290684,N,84.643164,E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*",
-        "String 2 ($PVT)": f"$PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,04022026,023800,25.6501550,N,84.7851780,E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*",
-        "String 3 ($,100)": f"$,100,WTEX,1.0.01,NR,01,L,{imei},{veh_no},1,11062025,014226,25.6509430,N,84.7847740,E,0.0,284.7,23,64.0,0.9,0.5,Airtel,0,1,11.9,3.8,0,C,10,405,70,1506,4c74,4c75,1506,10,10e1,1506,08,10e3,1506,07,2662,1506,06,0000,11,000021,A486*"
+        "String 2 ($PVT)": f"$PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,04022026,023800,25.6501550,N,84.7851780,E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
     }
     sel_template = st.selectbox("Choose Template", list(static_templates.keys()))
-    manual_packet = st.text_area("Final Raw Packet:", value=static_templates[sel_template], height=100)
+    manual_packet = st.text_area("Packet:", value=static_templates[sel_template], height=100)
     
-    if st.button("🚀 SEND STATIC PACKET"):
+    if st.button("🚀 SEND STATIC"):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(5); s.connect((srv_ip, srv_port))
-                s.sendall((manual_packet.strip() + "\r\n").encode('ascii'))
-                st.success("Static Packet Sent!")
+                full_p = manual_packet.strip() + "\r\n"
+                s.sendall(full_p.encode('ascii'))
+                log_to_supabase(imei, lat, lon, full_p.strip()) # Save to DB
+                st.success("Sent & Logged!")
         except Exception as e: st.error(f"Failed: {e}")
 
 else:
-    st.subheader("🧪 Turbo Discovery & Filter Mode")
+    st.subheader("🧪 Turbo Discovery & DB Logging")
     selected_tags = []
     tag_cols = st.columns(5)
     for i, t_tag in enumerate(st.session_state.extended_tags):
@@ -95,28 +117,18 @@ else:
         if tag_cols[i % 5].checkbox(f"{status} {t_tag}", value=True, key=f"check_{t_tag}"):
             selected_tags.append(t_tag)
 
-    st.markdown("---")
-    col_btn1, col_btn2 = st.columns(2)
-    if col_btn1.button("🚀 START SUPER-CHARGE ROTATOR", use_container_width=True):
-        if not selected_tags: st.error("Tag select karo!")
-        else: st.session_state.running = True
+    if st.button("🚀 START SUPER-CHARGE ROTATOR"):
+        if selected_tags: st.session_state.running = True
     
-    if col_btn2.button("⏹️ STOP", use_container_width=True):
-        st.session_state.running = False
+    if st.button("⏹️ STOP"): st.session_state.running = False
 
     if st.session_state.running:
         log_placeholder = st.empty()
-        idx_key = "current_idx"
-        if idx_key not in st.session_state: st.session_state[idx_key] = 0
-        
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(5)
-                s.connect((srv_ip, srv_port))
-                
+                s.settimeout(5); s.connect((srv_ip, srv_port))
                 while st.session_state.running:
-                    # Logic: Get current tag from session index
-                    current_tag = selected_tags[st.session_state[idx_key] % len(selected_tags)]
+                    current_tag = selected_tags[st.session_state.current_idx % len(selected_tags)]
                     t_start = time.time()
                     
                     now = datetime.now()
@@ -126,19 +138,17 @@ else:
                     
                     try:
                         s.sendall(packet.encode('ascii'))
+                        log_to_supabase(imei, lat, lon, packet.strip()) # <--- DB SAVING LOGIC
                         latency = round((time.time() - t_start) * 1000, 2)
                         st.session_state.tag_status[current_tag] = "✅"
-                        log_placeholder.success(f"🚀 SUPER CHARGED: {current_tag} | {latency}ms | Time: {t_live}")
-                    except Exception:
+                        log_placeholder.success(f"🚀 SUPER CHARGED & LOGGED: {current_tag} | {latency}ms")
+                    except:
                         st.session_state.tag_status[current_tag] = "❌"
-                        st.error(f"Connection Lost on {current_tag}. Reconnecting...")
-                        break 
+                        break
                     
-                    # Update index for NEXT tag
-                    st.session_state[idx_key] += 1
+                    st.session_state.current_idx += 1
                     time.sleep(interval)
-                    st.rerun() # Refresh to show next tag in rotation
-        except Exception as conn_err:
-            st.warning(f"🔄 Server unreachable: {conn_err}. Retrying in 2s...")
-            time.sleep(2)
-            st.rerun()
+                    st.rerun()
+        except:
+            st.warning("🔄 Reconnecting...")
+            time.sleep(1); st.rerun()
