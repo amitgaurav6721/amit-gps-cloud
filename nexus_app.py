@@ -5,17 +5,16 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-# --- 1. CONFIG & UI SETUP ---
+# --- 1. CONFIG ---
 st.set_page_config(page_title="Amit GPS Master Hybrid", layout="wide", page_icon="🛰️")
 
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
 
-# Session State Initialization (Crucial for stability)
+# Session State Initialization
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'running' not in st.session_state: st.session_state.running = False
 if 'logs' not in st.session_state: st.session_state.logs = []
-if 'stats' not in st.session_state: st.session_state.stats = {"ok": 0, "fail": 0}
 if 'tag_status' not in st.session_state: st.session_state.tag_status = {}
 if 'extended_tags' not in st.session_state: 
     st.session_state.extended_tags = ["GRL", "ASPL", "WTEX", "EGAS", "VLT", "MENT", "BBOX", "TNGR", "RCON", "GPST"]
@@ -26,6 +25,18 @@ def get_checksum(body):
     cs = 0
     for c in body: cs ^= ord(c)
     return f"{cs:02X}"
+
+def send_to_server(host, port, pkt):
+    start = time.time()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect((host, port))
+            s.sendall(pkt.encode('ascii'))
+            latency = int((time.time() - start) * 1000)
+            return True, f"{latency}ms"
+    except:
+        return False, "TIMEOUT"
 
 def login_user(email, password):
     url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
@@ -38,9 +49,8 @@ def login_user(email, password):
         else: st.error("❌ Login Failed")
     except: st.error("⚠️ Connection Error")
 
-# --- 3. MAIN RENDER ---
+# --- 3. LOGIN SCREEN ---
 if not st.session_state.authenticated:
-    # --- Login Screen ---
     st.markdown("<h1 style='text-align: center;'>🛰️ Amit GPS Master Hybrid</h1>", unsafe_with_html=True)
     _, col2, _ = st.columns([1, 2, 1])
     with col2:
@@ -51,115 +61,98 @@ if not st.session_state.authenticated:
                 login_user(u_email, u_pass)
     st.stop()
 
-# --- 4. DASHBOARD (Will run only if authenticated) ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuration")
     imei_val = st.text_input("IMEI", "862567075041793")
     veh_no = st.text_input("Vehicle", "BR04GA5974")
     srv_ip = st.text_input("Host", "vlts.bihar.gov.in")
     srv_port = st.number_input("Port", value=9999)
-    gap = st.slider("Speed (Sec)", 0.05, 2.0, 0.50)
     
     st.markdown("---")
-    # ✅ Feature: Add New Tags
-    st.subheader("➕ Add Custom Tag")
-    new_tag = st.text_input("New Tag Name", max_chars=10).upper().strip()
+    new_tag = st.text_input("Add Custom Tag").upper().strip()
     if st.button("Add Tag") and new_tag:
         if new_tag not in st.session_state.extended_tags:
             st.session_state.extended_tags.append(new_tag)
-            st.success(f"Tag {new_tag} Added")
             st.rerun()
-        else: st.warning("Tag already exists")
 
-    st.markdown("---")
     if st.button("🚪 Logout", use_container_width=True):
         st.session_state.authenticated = False
-        st.session_state.running = False
         st.rerun()
 
-# --- 5. MAIN UI LAYOUT ---
-st.title("🛰️ Bihar VLTS Live Console")
+# --- 5. MAIN UI ---
+st.title("🛰️ Bihar VLTS Console")
 
-# Row 1: Map and Controls
-r1c1, r1c2 = st.columns([2, 1])
-with r1c1:
-    # ✅ Feature: Map Wapas Aa Gaya
-    st.subheader("🗺️ Live Location Map")
-    lat_val = st.number_input("Latitude", value=25.650945, format="%.6f")
-    lon_val = st.number_input("Longitude", value=84.784773, format="%.6f")
-    st.map(pd.DataFrame({'lat': [lat_val], 'lon': [lon_val]}))
+# TABS for Static and Live modes
+tab1, tab2 = st.tabs(["🔄 Live Rotator", "📥 Static Manual Mode"])
 
-with r1c2:
-    st.subheader("🎮 Rotation Controls")
-    # ✅ Feature: Tag Selection with Status Icon
-    selected_tags = [t for t in st.session_state.extended_tags if st.checkbox(f"{st.session_state.tag_status.get(t,'⚪')} {t}", value=True, key=f"t_{t}")]
+with tab1:
+    col_l, col_r = st.columns([2, 1])
+    with col_l:
+        lat_val = st.number_input("Lat", value=25.650945, format="%.6f", key="lat_live")
+        lon_val = st.number_input("Lon", value=84.784773, format="%.6f", key="lon_live")
+        st.map(pd.DataFrame({'lat': [lat_val], 'lon': [lon_val]}), height=250)
     
-    c1, c2 = st.columns(2)
-    if c1.button("🚀 START"): st.session_state.running = True
-    if c2.button("⏹️ STOP"): st.session_state.running = False
-    
-    stat_placeholder = st.empty()
+    with col_r:
+        st.subheader("Controls")
+        gap = st.slider("Speed (Sec)", 0.05, 2.0, 0.50)
+        selected_tags = [t for t in st.session_state.extended_tags if st.checkbox(f"{st.session_state.tag_status.get(t,'⚪')} {t}", value=True, key=f"t_{t}")]
+        
+        c1, c2 = st.columns(2)
+        if c1.button("🚀 START"): st.session_state.running = True
+        if c2.button("⏹️ STOP"): st.session_state.running = False
 
-# ✅ Feature: Niche Information Section Wapas Aa Gaya
+with tab2:
+    st.subheader("Manual Packet Construction")
+    col_s1, col_s2, col_s3 = st.columns(3)
+    s_tag = col_s1.selectbox("Tag", st.session_state.extended_tags)
+    s_lat = col_s2.number_input("Manual Lat", value=25.650945, format="%.6f")
+    s_lon = col_s3.number_input("Manual Lon", value=84.784773, format="%.6f")
+    
+    manual_body = f"PVT,{s_tag},2.1.1,NR,01,L,{imei_val},{veh_no},1,{datetime.now().strftime('%d%m%Y,%H%M%S')},{s_lat:08.6f},N,{s_lon:09.6f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83"
+    manual_pkt = f"${manual_body},{get_checksum(manual_body)}*\r\n"
+    
+    st.code(manual_pkt.strip(), language="text")
+    if st.button("📤 Send Single Packet"):
+        ok, res = send_to_server(srv_ip, srv_port, manual_pkt)
+        if ok: st.success(f"Success! Latency: {res}")
+        else: st.error(f"Failed! Error: {res}")
+
+# --- 6. LOGS & INFO (Fixed Placeholders) ---
 st.markdown("---")
-with st.expander("📊 Transmission Details & Logs", expanded=True):
-    r2c1, r2c2 = st.columns([3, 2])
-    
-    with r2c1:
-        st.subheader("📡 Live Packets & Logs")
-        log_box = st.code("Waiting for transmission...")
+col_log, col_raw = st.columns([3, 2])
+with col_log:
+    st.subheader("📡 Live Logs & Latency")
+    log_area = st.empty()
+with col_raw:
+    st.subheader("📦 Last Raw Packet")
+    raw_area = st.empty()
 
-    with r2c2:
-        st.subheader("📝 Static & Raw Packet Info")
-        static_info = st.empty()
-        raw_pkt_box = st.empty()
-
-# --- 6. TRANSMISSION LOGIC ---
+# --- 7. LIVE TRANSMISSION LOOP ---
 if st.session_state.running:
     if not selected_tags:
-        st.error("Select at least one tag")
-        st.session_state.running = False
+        st.error("Select tags!"); st.session_state.running = False
     else:
-        try:
-            # Main stable loop
-            while st.session_state.running:
-                tag = selected_tags[st.session_state.current_idx % len(selected_tags)]
-                now = datetime.now()
-                
-                # Update Status Box in Sidebar part
-                stat_placeholder.markdown(f"**Current Status:** Running 🚀 | **Tag:** `{tag}`")
+        while st.session_state.running:
+            tag = selected_tags[st.session_state.current_idx % len(selected_tags)]
+            now = datetime.now()
+            
+            body = f"PVT,{tag},2.1.1,NR,01,L,{imei_val},{veh_no},1,{now.strftime('%d%m%Y')},{now.strftime('%H%M%S')},{lat_val:08.6f},N,{lon_val:09.6f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83"
+            pkt = f"${body},{get_checksum(body)}*\r\n"
+            
+            ok, res_ms = send_to_server(srv_ip, srv_port, pkt)
+            
+            if ok:
+                st.session_state.tag_status[tag] = "✅"
+                st.session_state.logs.insert(0, f"{now.strftime('%H:%M:%S')} | 🟢 {tag} | {res_ms}")
+            else:
+                st.session_state.tag_status[tag] = "❌"
+                st.session_state.logs.insert(0, f"{now.strftime('%H:%M:%S')} | 🔴 {tag} | TIMEOUT")
 
-                # Packet Body (Static + Dynamic parts)
-                body_dynamic = f"{now.strftime('%d%m%Y')},{now.strftime('%H%M%S')},{lat_val:08.6f},N,{lon_val:09.6f},E"
-                body_static = f",0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83"
-                body_full = f"PVT,{tag},2.1.1,NR,01,L,{imei_val},{veh_no},1,{body_dynamic}{body_static}"
-                
-                pkt = f"${body_full},{get_checksum(body_full)}*\r\n"
-                
-                # Send Packet
-                try:
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.settimeout(2)
-                        s.connect((srv_ip, srv_port))
-                        s.sendall(pkt.encode('ascii'))
-                        st.session_state.tag_status[tag] = "✅"
-                        status_text = f"🟢 {tag} SENT"
-                except:
-                    st.session_state.tag_status[tag] = "❌"
-                    status_text = f"🔴 {tag} FAILED"
-
-                # Update Logs & Info Boxes
-                st.session_state.logs.insert(0, f"{now.strftime('%H:%M:%S')} | {status_text}")
-                log_box.text("\n".join(st.session_state.logs[:20]))
-                
-                static_info.markdown(f"**IMEI:** `{imei_val}` | **Vehicle:** `{veh_no}`\n**Host:** `{srv_ip}:{srv_port}`")
-                raw_pkt_box.code(pkt.strip())
-                
-                # Advance Index and Sleep
-                st.session_state.current_idx += 1
-                time.sleep(gap)
-                st.rerun() # Refreshing to update map and info
-                
-        except Exception as e:
-            st.error(f"Transmission Loop Error: {e}")
-            st.session_state.running = False
+            # Stable UI Updates
+            log_area.code("\n".join(st.session_state.logs[:15]))
+            raw_area.code(pkt.strip())
+            
+            st.session_state.current_idx += 1
+            time.sleep(gap)
+            st.rerun()
