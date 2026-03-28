@@ -52,7 +52,7 @@ if not st.session_state.logged_in:
 # --- 5. SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Config")
-    super_charge = st.toggle("🚀 Super Charge Mode", help="Keep-Alive Socket uses a single connection for all packets.")
+    super_charge = st.toggle("🚀 Super Charge Mode", help="Keep-Alive Socket uses a single connection.")
     comp_name = st.text_input("Tag", "WTEX") 
     imei = st.text_input("IMEI", "862491076910809")
     veh_no = st.text_input("Vehicle", "BR01GH9898")
@@ -85,7 +85,6 @@ if st.session_state.running:
         cur = conn.cursor()
         p_count = 0
         
-        # Super Charge: Persistent Socket Setup
         persistent_socket = None
         if super_charge:
             try:
@@ -93,16 +92,15 @@ if st.session_state.running:
                 persistent_socket.settimeout(2)
                 persistent_socket.connect((srv_ip, srv_port))
             except:
-                st.warning("Could not establish Super Charge connection. Falling back to Normal.")
+                st.warning("Super Charge connection failed. Using Normal.")
                 super_charge = False
 
         while st.session_state.running:
-            s_time = time.time()
+            s_time = time.perf_counter() # High precision timer
             now = datetime.now()
             d, t = now.strftime('%d%m%Y'), now.strftime('%H%M%S')
             p_count += 1
             
-            # Packets Pre-build
             base = f"2.1.1,NR,01,L,{imei},{veh_no},1"
             loc = f"{lat_v},N,{lon_v},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
             
@@ -112,13 +110,11 @@ if st.session_state.running:
             p2_pay = f"PVT,{comp_name},{base},{d}{t},{lat_v:.7f},N,{lon_v:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
             packet_b = f"${p2_pay}{get_ais140_checksum(p2_pay)}*\r\n"
             
-            # Sending Logic
             if super_charge and persistent_socket:
                 try:
                     persistent_socket.sendall(packet_a.encode('ascii'))
                     persistent_socket.sendall(packet_b.encode('ascii'))
                 except:
-                    # If persistent fails, reconnect
                     persistent_socket.close()
                     persistent_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     persistent_socket.connect((srv_ip, srv_port))
@@ -131,18 +127,17 @@ if st.session_state.running:
                             s.sendall(p.encode('ascii'))
                     except: pass
             
-            # DB Logging every 10th
             db_s = "⚡"
             if p_count % 10 == 0:
                 cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", (imei, lat_v, lon_v, packet_b.strip(), veh_no))
                 conn.commit()
                 db_s = "💾 Saved"
 
-            lcy = int((time.time() - s_time) * 1000)
+            lcy = (time.perf_counter() - s_time) * 1000 # Convert to ms
             mode_label = "Super 🚀" if super_charge else "Normal 🐢"
-            status_msg.info(f"Mode: {mode_label} | Count: {p_count} | Latency: {lcy}ms | DB: {db_s}")
+            status_msg.info(f"Mode: {mode_label} | Count: {p_count} | Latency: {lcy:.2f}ms | DB: {db_s}")
             
-            time.sleep(max(0, interval - (time.time() - s_time)))
+            time.sleep(max(0, interval - (time.perf_counter() - s_time)))
             if not st.session_state.running: break
             
         if persistent_socket: persistent_socket.close()
