@@ -23,8 +23,9 @@ def log_to_supabase(imei, lat, lon, packet):
     # Aapke project ki details
     url = "https://grdgexcjyrhkoffimsuw.supabase.co/rest/v1/gps_data"
     headers = {
-        "apikey": "YOUR_SUPABASE_ANON_KEY", # <--- Bhai, apni Anon Key yahan paste karein
-        "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY",
+        # Purani lines ko aise replace karein:
+"apikey": "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW",
+"Authorization": "Bearer sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW",
         "Content-Type": "application/json",
         "Prefer": "return=minimal"
     }
