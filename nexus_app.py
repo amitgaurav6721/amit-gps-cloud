@@ -27,7 +27,6 @@ if 'extended_tags' not in st.session_state:
 if 'running' not in st.session_state:
     st.session_state.running = False
 
-# Function to stop auto-run on mode switch
 def reset_running():
     st.session_state.running = False
 
@@ -38,7 +37,8 @@ with st.sidebar:
     veh_no = st.text_input("Vehicle", "BR04GA5974")
     srv_ip = st.text_input("Host", "vlts.bihar.gov.in")
     srv_port = st.number_input("Port", value=9999)
-    interval = st.slider("Latency Gap (Sec)", 0.1, 2.0, 0.5)
+    # Speed Control: 0.1 means 10 packets per second
+    interval = st.slider("Latency Gap (Sec)", 0.05, 2.0, 0.20)
     
     st.markdown("---")
     new_tag = st.text_input("➕ Add New Tag:")
@@ -53,12 +53,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    # FIX APPLIED HERE
-    mode = st.radio(
-        "Select Operational Mode:", 
-        ["Static (Manual)", "Experimental (Live Auto)"],
-        on_change=reset_running
-    )
+    mode = st.radio("Select Operational Mode:", ["Static (Manual)", "Experimental (Live Auto)"], on_change=reset_running)
 
 # --- 4. COMMON UI ---
 st.title("🛰️ Bihar VLTS Master Hybrid Console")
@@ -87,12 +82,10 @@ if mode == "Static (Manual)":
     if st.button("🚀 SEND STATIC PACKET"):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(5)
-                s.connect((srv_ip, srv_port))
+                s.settimeout(5); s.connect((srv_ip, srv_port))
                 s.sendall((manual_packet.strip() + "\r\n").encode('ascii'))
                 st.success("Static Packet Sent!")
-        except Exception as e:
-            st.error(f"Failed: {e}")
+        except Exception as e: st.error(f"Failed: {e}")
 
 else:
     st.subheader("🧪 Turbo Discovery & Filter Mode")
@@ -105,7 +98,7 @@ else:
 
     st.markdown("---")
     col_btn1, col_btn2 = st.columns(2)
-    if col_btn1.button("🚀 START AUTO-ROTATOR", use_container_width=True):
+    if col_btn1.button("🚀 START SUPER-CHARGE ROTATOR", use_container_width=True):
         if not selected_tags: st.error("Tag select karo!")
         else: st.session_state.running = True
     
@@ -115,26 +108,35 @@ else:
     if st.session_state.running:
         log_placeholder = st.empty()
         idx = 0
-        while st.session_state.running:
-            current_tag = selected_tags[idx % len(selected_tags)]
-            t_start = time.time()
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.settimeout(3)
-                    s.connect((srv_ip, srv_port))
+        try:
+            # Persistent Connection for Super Speed
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(5)
+                s.connect((srv_ip, srv_port))
+                
+                while st.session_state.running:
+                    current_tag = selected_tags[idx % len(selected_tags)]
+                    t_start = time.time()
+                    
                     now = datetime.now()
                     d_live, t_live = now.strftime('%d%m%Y'), now.strftime('%H%M%S')
                     body = f"PVT,{current_tag},2.1.1,NR,01,L,{imei},{veh_no},1,{d_live},{t_live},{format_coord(lat,True)},N,{format_coord(lon,False)},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
                     packet = f"${body},{get_bihar_checksum(body)}*\r\n"
-                    s.sendall(packet.encode('ascii'))
-                    latency = round((time.time() - t_start) * 1000, 2)
-                    st.session_state.tag_status[current_tag] = "✅"
-                    log_placeholder.success(f"Sent: {current_tag} | {latency}ms")
-            except Exception as e:
-                st.session_state.tag_status[current_tag] = "❌"
-                log_placeholder.error(f"Failed: {current_tag}")
-                time.sleep(1)
-            
-            idx += 1
-            time.sleep(interval)
+                    
+                    try:
+                        s.sendall(packet.encode('ascii'))
+                        latency = round((time.time() - t_start) * 1000, 2)
+                        st.session_state.tag_status[current_tag] = "✅"
+                        log_placeholder.success(f"🚀 SUPER CHARGED: {current_tag} | {latency}ms | Time: {t_live}")
+                    except Exception as e:
+                        st.session_state.tag_status[current_tag] = "❌"
+                        st.error(f"Connection Lost on {current_tag}. Reconnecting...")
+                        break # Re-establish connection
+                    
+                    idx += 1
+                    time.sleep(interval)
+                    st.rerun()
+        except Exception as conn_err:
+            st.warning(f"🔄 Server unreachable: {conn_err}. Retrying in 2s...")
+            time.sleep(2)
             st.rerun()
