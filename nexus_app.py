@@ -102,7 +102,7 @@ if st.session_state.running:
         conn = psycopg2.connect(host="aws-1-ap-northeast-2.pooler.supabase.com", database="postgres", user="postgres.grdgexcjyrhkoffimsuw", password=DB_PASSWORD, port="6543", sslmode="require")
         cur = conn.cursor()
         while st.session_state.running:
-            start_time = time.time() # Timer Shuru
+            start_time = time.time()
             now = datetime.now()
             d, t = now.strftime('%d%m%Y'), now.strftime('%H%M%S')
             
@@ -123,12 +123,12 @@ if st.session_state.running:
             cur.execute("INSERT INTO gps_data (imei, latitude, longitude, raw_packet, vehicle_no) VALUES (%s, %s, %s, %s, %s)", (imei, lat_v, lon_v, packet_b.strip(), veh_no))
             conn.commit()
             
-            end_time = time.time() # Timer Khatam
-            latency = int((end_time - start_time) * 1000) # Milliseconds mein convert kiya
+            end_time = time.time()
+            latency = int((end_time - start_time) * 1000)
             
             status_msg.info(f"⚡ Dual Packets Sent | Time: {now.strftime('%H:%M:%S')} | Latency: {latency}ms")
             p_bar.progress(100)
-            time.sleep(interval)
+            time.sleep(max(0, interval - (end_time - start_time))) # Interval adjusted for latency
             p_bar.progress(0)
             if not st.session_state.running: break
     except Exception as e:
