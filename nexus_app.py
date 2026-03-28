@@ -39,26 +39,31 @@ def get_ais140_checksum(payload):
         checksum ^= ord(char)
     return f"{checksum:02X}"
 
-# --- 4. LOGIN LOGIC (With Debugging Error) ---
+# --- 4. LOGIN LOGIC (Fixed Persistence) ---
 if not st.session_state.logged_in:
     st.title("🔐 Amit GPS Hybrid Login")
-    u = st.text_input("Email").strip().lower()
-    p = st.text_input("Password", type="password")
     
-    if st.button("Login", use_container_width=True):
-        try:
-            # Asali authentication yahan ho rahi hai
-            res = supabase.auth.sign_in_with_password({"email": u, "password": p})
-            if res.user:
-                st.session_state.logged_in = True
-                st.session_state.user_email = u
-                st.rerun() 
+    # Form ka use values ko hold karne ke liye zaroori hai
+    with st.form("login_gate"):
+        u_input = st.text_input("Email").strip().lower()
+        p_input = st.text_input("Password", type="password")
+        submit_button = st.form_submit_button("Login", use_container_width=True)
+        
+        if submit_button:
+            if u_input and p_input:
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": u_input, "password": p_input})
+                    if res.user:
+                        st.session_state.logged_in = True
+                        st.session_state.user_email = u_input
+                        st.rerun()
+                    else:
+                        st.error("Authentication failed: User not found.")
+                except Exception as e:
+                    st.error(f"🚨 Login Error Detail: {e}")
             else:
-                st.error("Authentication failed: No user found.")
-        except Exception as e:
-            # Yahan ab aapko "Login Failed" ki jagah asli reason dikhega
-            st.error(f"🚨 Login Error Detail: {e}")
-    st.stop() 
+                st.warning("Please enter both email and password.")
+    st.stop()
 
 # --- 5. SIDEBAR CONFIG ---
 with st.sidebar:
@@ -106,11 +111,11 @@ if st.session_state.running:
             now = datetime.now()
             d, t = now.strftime('%d%m%Y'), now.strftime('%H%M%S')
             
-            p1 = f"PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,{d},{t},{lat_v},N,{lon_v},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c8,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
+            p1 = f"PVT,EGAS,2.1.1,NR,01,L,{imei},{veh_no},1,{d},{t},{lat_v},N,{lon_v},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
             cs1 = get_ais140_checksum(p1)
             packet_a = f"${p1},{cs1}*\r\n"
             
-            p2 = f"PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{d}{t},{lat_v:.7f},N,{lon_v:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c8,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
+            p2 = f"PVT,{comp_name},2.1.1,NR,01,L,{imei},{veh_no},1,{d}{t},{lat_v:.7f},N,{lon_v:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
             cs2 = get_ais140_checksum(p2)
             packet_b = f"${p2}{cs2}*\r\n"
             
