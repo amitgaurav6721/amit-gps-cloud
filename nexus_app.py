@@ -1,151 +1,141 @@
 import streamlit as st
 import socket
 import time
+import random
 from datetime import datetime
-import requests
-import os
+import threading
 
 # --- CONFIG ---
-st.set_page_config(page_title="Amit GPS Master", layout="wide")
-
-SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+st.set_page_config(page_title="VLTS PRO MAX", layout="wide")
 
 # --- SESSION STATE ---
-defaults = {
-    "authenticated": False,
-    "tag_status": {},
-    "running": False,
-    "current_idx": 0
-}
+if "running" not in st.session_state:
+    st.session_state.running = False
 
-for key, val in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+if "logs" not in st.session_state:
+    st.session_state.logs = []
 
-# --- LOGIN ---
-if not st.session_state.authenticated:
-    st.title("🛰️ Amit GPS Login")
+if "stats" not in st.session_state:
+    st.session_state.stats = {
+        "accepted": 0,
+        "rejected": 0,
+        "no_response": 0
+    }
 
-    with st.form("login_form"):
-        u = st.text_input("Email", value="amit@admin.com")
-        p = st.text_input("Password", type="password")
+# --- UI ---
+st.title("🛰️ VLTS Multi Device Pro Simulator")
 
-        if st.form_submit_button("Login"):
-            try:
-                url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
-                headers = {
-                    "apikey": SUPABASE_KEY,
-                    "Content-Type": "application/json"
-                }
-
-                res = requests.post(
-                    url,
-                    json={"email": u, "password": p},
-                    headers=headers
-                )
-
-                if res.status_code == 200:
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("❌ Login Failed")
-
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-    st.stop()
-
-# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Settings")
 
-    imei = st.text_input("IMEI", "862567075041793")
-    veh = st.text_input("Vehicle", "BR04GA5974")
     host = st.text_input("Host", "vlts.bihar.gov.in")
     port = st.number_input("Port", value=9999)
-    gap = st.slider("Interval", 0.1, 2.0, 0.5)
 
-    if st.button("Logout"):
-        st.session_state.authenticated = False
-        st.session_state.running = False
-        st.rerun()
+    interval = st.slider("Interval", 0.5, 5.0, 1.0)
+    device_count = st.slider("Devices", 1, 10, 2)
 
-# --- MAIN UI ---
-st.header("🛰️ Bihar VLTS Live Console")
+base_lat = st.number_input("Latitude", value=25.650945, format="%.6f")
+base_lon = st.number_input("Longitude", value=84.784773, format="%.6f")
 
-lat = st.number_input("Lat", value=25.650945, format="%.6f")
-lon = st.number_input("Lon", value=84.784773, format="%.6f")
-
-tags = ["GRL", "ASPL", "WTEX", "EGAS", "VLT", "MENT", "BBOX", "TNGR", "RCON", "GPST"]
-
-sel = []
-for t in tags:
-    checked = st.checkbox(
-        f"{st.session_state.tag_status.get(t, '⚪')} {t}",
-        value=True,
-        key=t
-    )
-    if checked:
-        sel.append(t)
+tags = ["GRL", "ASPL", "WTEX", "EGAS", "VLT"]
+selected_tags = [t for t in tags if st.checkbox(t, True)]
 
 col1, col2 = st.columns(2)
 
-with col1:
-    if st.button("🚀 START"):
-        if len(sel) == 0:
-            st.error("❌ At least 1 tag select karo")
-        else:
-            st.session_state.running = True
+if col1.button("🚀 START"):
+    if len(selected_tags) == 0:
+        st.error("Select at least 1 tag")
+    else:
+        st.session_state.running = True
 
-with col2:
-    if st.button("⏹️ STOP"):
-        st.session_state.running = False
+if col2.button("⏹️ STOP"):
+    st.session_state.running = False
 
-# --- SOCKET LOOP ---
-box = st.empty()
+log_box = st.empty()
+stat_box = st.empty()
 
-if st.session_state.running:
+# --- CHECKSUM ---
+def calculate_checksum(body):
+    cs = 0
+    for c in body:
+        cs ^= ord(c)
+    return f"{cs:02X}"
+
+# --- SEND FUNCTION ---
+def send_packet(host, port, body, device_id):
     try:
-        while st.session_state.running:
+        checksum = calculate_checksum(body)
+        packet = f"${body},{checksum}*\r\n"
 
-            if len(sel) == 0:
-                st.warning("No tags selected")
-                break
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(5)
+            s.connect((host, int(port)))
 
-            tag = sel[st.session_state.current_idx % len(sel)]
-            ts = datetime.now()
-
-            body = (
-                f"PVT,{tag},2.1.1,NR,01,L,{imei},{veh},1,"
-                f"{ts.strftime('%d%m%Y')},{ts.strftime('%H%M%S')},"
-                f"{lat:08.6f},N,{lon:09.6f},E,"
-                "0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,"
-                "26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,"
-                "c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
-            )
-
-            # checksum
-            cs = 0
-            for char in body:
-                cs ^= ord(char)
-
-            pkt = f"${body},{cs:04X}*\r\n"
+            start = time.time()
+            s.sendall(packet.encode("ascii"))
 
             try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.settimeout(5)
-                    s.connect((host, int(port)))
-                    s.sendall(pkt.encode("ascii"))
+                response = s.recv(1024)
+                latency = int((time.time() - start) * 1000)
 
-                st.session_state.tag_status[tag] = "✅"
-                box.success(f"Sent: {tag} | {ts.strftime('%H:%M:%S')}")
+                if response:
+                    st.session_state.stats["accepted"] += 1
+                    return f"🟢 DEV{device_id} ACCEPTED ({latency} ms)"
 
-            except Exception as e:
-                box.error(f"Socket Error: {e}")
+                else:
+                    st.session_state.stats["no_response"] += 1
+                    return f"🟡 DEV{device_id} NO RESPONSE"
 
-            st.session_state.current_idx += 1
-            time.sleep(gap)
+            except socket.timeout:
+                st.session_state.stats["no_response"] += 1
+                return f"🟡 DEV{device_id} TIMEOUT"
 
     except Exception as e:
-        st.error(f"Critical Error: {e}")
+        st.session_state.stats["rejected"] += 1
+        return f"🔴 DEV{device_id} ERROR: {e}"
+
+# --- DEVICE THREAD ---
+def simulate_device(device_id):
+    imei = f"86256707504{100+device_id}"
+
+    idx = 0
+
+    while st.session_state.running:
+
+        tag = selected_tags[idx % len(selected_tags)]
+        ts = datetime.now()
+
+        # STATIC VEHICLE (NO MOVEMENT)
+        lat = base_lat
+        lon = base_lon
+
+        body = (
+            f"PVT,{tag},2.1.1,NR,01,L,{imei},VEH{device_id},1,"
+            f"{ts.strftime('%d%m%Y')},{ts.strftime('%H%M%S')},"
+            f"{lat:.6f},N,{lon:.6f},E,"
+            "0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,"
+            "26,404,73,0a83,e3c8,e3c7,0a83"
+        )
+
+        status = send_packet(host, port, body, device_id)
+
+        log = f"{datetime.now().strftime('%H:%M:%S')} | {status}"
+        st.session_state.logs.insert(0, log)
+
+        idx += 1
+
+        time.sleep(interval + random.uniform(-0.1, 0.1))
+
+# --- START THREADS ---
+if st.session_state.running:
+    threads = []
+
+    for i in range(device_count):
+        t = threading.Thread(target=simulate_device, args=(i+1,), daemon=True)
+        threads.append(t)
+        t.start()
+
+    while st.session_state.running:
+        log_box.text("\n".join(st.session_state.logs[:20]))
+        stat_box.write(f"📊 Stats: {st.session_state.stats}")
+        time.sleep(1)
