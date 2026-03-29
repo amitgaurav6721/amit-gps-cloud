@@ -4,6 +4,7 @@ import time
 import requests
 import pandas as pd
 from datetime import datetime
+import re
 
 # --- 1. CONFIG & SESSION ---
 st.set_page_config(page_title="Amit GPS Master Hybrid", layout="wide", page_icon="🛰️")
@@ -18,16 +19,21 @@ if 'extended_tags' not in st.session_state:
     st.session_state.extended_tags = ["GRL", "ASPL", "WTEX", "EGAS", "VLT", "MENT", "BBOX", "TNGR", "RCON", "GPST"]
 if 'current_idx' not in st.session_state: st.session_state.current_idx = 0
 
-# --- 2. HELPERS ---
+# --- 2. HELPERS (Global Stripper Logic) ---
+def get_clean_string(text):
+    # Kisi bhi tarah ka space, tab ya newline zabbardasti hatane ke liye
+    return re.sub(r'\s+', '', str(text)).strip()
+
 def get_checksum(body):
+    clean_body = get_clean_string(body)
     cs = 0
-    for c in body: cs ^= ord(c)
-    return f"{cs:02X}" # Fixed: No spaces
+    for c in clean_body: cs ^= ord(c)
+    return f"{cs:02X}"
 
 def log_to_supabase(data):
     url = f"{SUPABASE_URL}/rest/v1/gps_logs"
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "return=minimal"}
-    try: requests.post(url, json=data, headers=headers, timeout=1)
+    try: requests.post(url, json=data, headers=headers, timeout=0.5)
     except: pass
 
 # --- 3. LOGIN ---
@@ -63,14 +69,18 @@ with st.sidebar:
 
 st.title("🛰️ Bihar VLTS Live Console")
 
-# --- 5. TRANSMISSION ENGINE (Live Update Support) ---
+# --- 5. ENGINE (Live Rotator) ---
 @st.fragment(run_every=1.0 if st.session_state.running else None)
 def transmission_engine(sel_tags, l_lat, l_lon):
     if st.session_state.running and sel_tags:
         tag = sel_tags[st.session_state.current_idx % len(sel_tags)]
         now = datetime.now()
-        body = f"PVT,{tag},2.1.1,NR,01,L,{imei_val},{veh_no},1,{now.strftime('%d%m%Y')},{now.strftime('%H%M%S')},{l_lat:.6f},N,{l_lon:.6f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83"
-        pkt = f"${body},{get_checksum(body)}*\r\n"
+        # Raw body preparation
+        raw_body = f"PVT,{tag},2.1.1,NR,01,L,{imei_val},{veh_no},1,{now.strftime('%d%m%Y')},{now.strftime('%H%M%S')},{l_lat:.6f},N,{l_lon:.6f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83"
+        
+        # Clean transmission
+        clean_body = get_clean_string(raw_body)
+        pkt = f"${clean_body},{get_checksum(clean_body)}*\r\n"
         
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -78,12 +88,10 @@ def transmission_engine(sel_tags, l_lat, l_lon):
             st.session_state.logs.insert(0, f"{now.strftime('%H:%M:%S')} | 🟢 {tag} Sent")
             log_to_supabase({"imei": imei_val, "tag": tag, "lat": l_lat, "lon": l_lon, "packet": pkt.strip(), "status": "LIVE"})
         except Exception as e:
-            st.session_state.logs.insert(0, f"{now.strftime('%H:%M:%S')} | 🔴 Error: {str(e)[:20]}")
-        
+            st.session_state.logs.insert(0, f"{now.strftime('%H:%M:%S')} | 🔴 Reset: {str(e)[:10]}")
         st.session_state.current_idx += 1
-    
     st.subheader("📡 Status")
-    st.code("\n".join(st.session_state.logs[:12]))
+    st.code("\n".join(st.session_state.logs[:10]))
 
 # --- 6. UI TABS ---
 t1, t2 = st.tabs(["🔄 Live Rotator", "📥 Static Bulk Mode"])
@@ -91,11 +99,10 @@ t1, t2 = st.tabs(["🔄 Live Rotator", "📥 Static Bulk Mode"])
 with t1:
     col_l, col_r = st.columns([2, 1])
     with col_l:
-        l_lat = st.number_input("Lat", value=25.650945, format="%.6f", key="live_lat")
-        l_lon = st.number_input("Lon", value=84.784773, format="%.6f", key="live_lon")
+        l_lat = st.number_input("Lat", value=25.650945, format="%.6f", key="llat")
+        l_lon = st.number_input("Lon", value=84.784773, format="%.6f", key="llon")
         st.map(pd.DataFrame({'lat': [l_lat], 'lon': [l_lon]}), height=200)
     with col_r:
-        st.write("Select Tags:")
         sel_tags = [t for t in st.session_state.extended_tags if st.checkbox(t, True, key=f"c_{t}")]
         if st.button("🚀 START"): st.session_state.running = True; st.rerun()
         if st.button("⏹️ STOP"): st.session_state.running = False; st.rerun()
@@ -110,24 +117,25 @@ with t2:
         m_lat = st.number_input("Lat", value=25.650945, format="%.6f", key="st_lat")
         m_lon = st.number_input("Lon", value=84.784773, format="%.6f", key="st_lon")
         body = f"PVT,{m_tag},2.1.1,NR,01,L,{imei_val},{veh_no},1,{datetime.now().strftime('%d%m%Y')},{datetime.now().strftime('%H%M%S')},{m_lat:.6f},N,{m_lon:.6f},E,0.00,0.0,0,0,0,0,airtel,1,1,12.0,4.0,0,C,0,0,0,0"
-        final_pkt = f"${body},{get_checksum(body)}*\r\n"
+        clean_b = get_clean_string(body)
+        final_pkt = f"${clean_b},{get_checksum(clean_b)}*\r\n"
     else:
         raw_in = st.text_area("Body:", value="")
-        final_pkt = raw_in.strip() + "\r\n" if raw_in else ""
+        final_pkt = get_clean_string(raw_in) + "\r\n" if raw_in else ""
 
     st.code(final_pkt.strip())
     if st.button("📤 SEND BULK"):
-        if not final_pkt: st.error("Packet empty!"); st.stop()
+        if not final_pkt: st.error("Empty!"); st.stop()
         p_bar = st.progress(0); s_text = st.empty()
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(10); s.connect((srv_ip, srv_port))
                 for i in range(int(m_count)):
-                    # Persistent socket use: sending one after another
-                    s.sendall(final_pkt.replace(" ", "").encode('ascii'))
-                    log_to_supabase({"imei": imei_val, "packet": final_pkt.strip(), "status": "BULK"})
-                    p_bar.progress((i + 1) / m_count)
-                    s_text.text(f"Sending {i+1}/{m_count}...")
+                    # Force Clean transmission packet
+                    clean_send = get_clean_string(final_pkt) + "\r\n"
+                    s.sendall(clean_send.encode('ascii'))
+                    log_to_supabase({"imei": imei_val, "packet": clean_send.strip(), "status": "BULK"})
+                    p_bar.progress((i + 1) / m_count); s_text.text(f"Sending {i+1}/{m_count}...")
                     time.sleep(m_gap)
             st.success("Sent Successfully!")
-        except Exception as e: st.error(f"Server Error: {e}")
+        except Exception as e: st.error(f"Server Reset: {e}")
