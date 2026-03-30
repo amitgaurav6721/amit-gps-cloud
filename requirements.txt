@@ -3,3 +3,7 @@ psycopg2-binary
 supabase
 pandas
 streamlit-js-eval
+streamlit
+pandas
+openpyxl
+supabase
