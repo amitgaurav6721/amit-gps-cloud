@@ -2,53 +2,52 @@ import streamlit as st
 import pandas as pd
 import time
 from datetime import datetime, timedelta
-from database import supabase, get_tags # Dono import hone chahiye
+from database import supabase, get_tags
 
 def admin_panel():
-    st.sidebar.markdown("<h2 style='color: #FF4B4B;'>👑 Admin Pro Max</h2>", unsafe_allow_html=True)
-    if st.sidebar.button("🔒 Logout Admin", use_container_width=True):
+    st.sidebar.markdown("### 👑 Admin Control")
+    if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
     
-    t1, t2, t3, t4, t5 = st.tabs(["📊 Reports", "🚀 Injector", "🏷️ Tag Manager", "👤 User Control", "💳 Recharges"])
+    t1, t2, t3, t4, t5 = st.tabs(["📊 Reports", "🚀 Injector", "🏷️ Tags", "👤 Users", "💳 Recharges"])
     
-    # --- TAG MANAGER (TAB 3) ---
     with t3:
-        st.subheader("🏷️ Database Tag Inventory")
-        
-        c1, c2 = st.columns([3, 1])
-        new_tag = c1.text_input("Enter New Tag Name", placeholder="e.g. BBOX77").upper().strip()
-        
-        if c2.button("➕ SAVE", use_container_width=True):
+        st.subheader("🏷️ Tag Manager")
+        new_tag = st.text_input("New Tag").strip().upper()
+        if st.button("➕ Save Tag"):
             if new_tag:
-                # Direct try-catch for better debugging
-                try:
-                    supabase.table("custom_tags").upsert({"tag_name": new_tag}).execute()
-                    st.success(f"Tag {new_tag} Saved!")
-                    time.sleep(0.5)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Save failed: {e}")
-
+                supabase.table("custom_tags").upsert({"tag_name": new_tag}).execute()
+                st.success("Saved!"); time.sleep(0.5); st.rerun()
+        
         st.divider()
-        
-        # Ab Fresh data fetch hoga
-        db_tags = get_tags() 
-        
-        if db_tags:
-            st.success(f"Successfully connected! Found {len(db_tags)} Tags.")
-            grid = st.columns(4)
-            for i, t_name in enumerate(db_tags):
-                with grid[i % 4]:
-                    st.markdown(f"<div style='background-color:#262730; border:1px solid #FF4B4B; padding:10px; border-radius:5px; text-align:center;'><b>{t_name}</b></div>", unsafe_allow_html=True)
-                    if st.button("🗑️", key=f"d_{t_name}_{i}"):
-                        supabase.table("custom_tags").delete().eq("tag_name", t_name).execute()
+        # Fresh Fetch
+        all_tags = get_tags()
+        if all_tags:
+            st.success(f"Connected! Total Tags: {len(all_tags)}")
+            cols = st.columns(4)
+            for i, tag in enumerate(all_tags):
+                with cols[i % 4]:
+                    st.info(f"**{tag}**")
+                    if st.button("🗑️", key=f"del_{tag}_{i}"):
+                        supabase.table("custom_tags").delete().eq("tag_name", tag).execute()
                         st.rerun()
         else:
-            st.warning("⚠️ Database se connection toh hai, par 'custom_tags' table mein koi data nahi mila.")
+            st.error("No tags found. Check Supabase 'custom_tags' table.")
 
-    # --- REPORTS & USER CONTROL (Keep Previous Logic) ---
-    with t1:
-        st.info("Reports tab connects to 'activity_logs'")
     with t4:
-        st.info("User Control connects to 'user_profiles'")
+        st.subheader("👤 User Editor")
+        with st.expander("✨ Create User (With Location)"):
+            with st.form("nu"):
+                u, p = st.text_input("User"), st.text_input("Pass")
+                la = st.number_input("Lat", value=25.5940, format="%.6f")
+                lo = st.number_input("Lon", value=85.1370, format="%.6f")
+                if st.form_submit_button("Create"):
+                    exp = (datetime.now() + timedelta(days=28)).strftime('%Y-%m-%d')
+                    supabase.table("user_profiles").insert({"username": u, "password": p, "expiry_date": exp, "status": "active", "latitude": la, "longitude": lo}).execute()
+                    st.success("Created!"); st.rerun()
+
+    # Placeholders for other tabs
+    with t1: st.info("Reports Tab")
+    with t2: st.info("Injector Tab")
+    with t5: st.info("Recharge Tab")
