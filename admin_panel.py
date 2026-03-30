@@ -12,7 +12,7 @@ PORT = 9999
 
 def send_vlts_raw(host, port, raw_packet):
     try:
-        # EXACT FORMAT: No spaces in \r\n
+        # ⚠️ CRITICAL: Strict \r\n without any spaces
         final_to_send = raw_packet + "\r\n"
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -32,26 +32,23 @@ def admin_panel():
     
     t1, t2, t3, t4, t5 = st.tabs(["📊 Reports", "🚀 Bulk Simulator", "🏷️ Tag Manager", "👤 User Control", "💳 Recharges"])
     
-    # --- TAB 1: REPORTS (LIVE DATA) ---
+    # --- TAB 1: REPORTS ---
     with t1:
         st.subheader("📊 Live Activity Reports")
         if st.button("🔄 Refresh Logs", use_container_width=True):
             st.rerun()
-            
         try:
-            # Fetching from Supabase activity_logs
             res = supabase.table("activity_logs").select("*").order("created_at", desc=True).limit(20).execute()
             if res.data:
                 df = pd.DataFrame(res.data)
-                # Formatting for better view
                 if 'id' in df.columns: df = df.drop(columns=['id'])
                 st.dataframe(df, use_container_width=True)
             else:
-                st.info("No logs found. Start the simulator to see data here.")
+                st.info("No logs found. Start the simulator first.")
         except Exception as e:
-            st.error(f"Error fetching reports: {e}")
+            st.error(f"Report Error: {e}")
 
-    # --- TAB 2: BULK SIMULATOR (STRICT LOGIC) ---
+    # --- TAB 2: BULK SIMULATOR ---
     with t2:
         st.subheader("🛰️ Bihar VLTS Movement Simulator (Bulk)")
         
@@ -109,25 +106,24 @@ def admin_panel():
                     success = send_vlts_raw(HOST_URL, PORT, packet)
                     sent_details.append(f"✅ {tag}" if success else f"❌ {tag}")
 
-                # Update UI
                 status_msg.success(f"✅ Batch Complete: {len(all_db_tags)} Tags fired at {t_now}")
                 preview_box.text_area("🛰️ Live Bulk Data (All Tags)", value=all_packets_preview, height=350)
                 
                 with log_container.expander("📝 Live Tag Checklist", expanded=True):
                     st.write(", ".join(sent_details))
 
-                # --- SAVE TO REPORTS (Outside inner loop for speed) ---
+                # Save log once per burst
                 try:
                     supabase.table("activity_logs").insert({
                         "user_id": 1, 
-                        "vehicle_no": f"BURST: {v_no} ({len(all_db_tags)} Tags)"
+                        "vehicle_no": f"SIM: {v_no} ({len(all_db_tags)} Tags)"
                     }).execute()
                 except: pass
 
                 time.sleep(gap)
                 log_container.empty()
 
-    # --- TAG MANAGER ---
+    # --- TAB 3: TAG MANAGER ---
     with t3:
         st.subheader("🏷️ Tag Manager")
         res_t = supabase.table("custom_tags").select("tag_name").execute()
