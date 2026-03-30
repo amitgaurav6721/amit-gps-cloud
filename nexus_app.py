@@ -145,7 +145,6 @@ def admin_panel():
                     d_left = (exp_date - datetime.now()).days + 1
                     status = usr.get('status', 'active')
                     with st.expander(f"👤 {usr['username']} (CID-{1000 + usr['cid_id']})"):
-                        # --- YAHAN UPDATED DETAILS DIKHENGI ---
                         col_info1, col_info2 = st.columns(2)
                         col_info1.info(f"📅 **Validity Left:** {d_left} Days")
                         col_info2.info(f"📆 **Expiry Date:** {usr['expiry_date']}")
@@ -159,9 +158,12 @@ def admin_panel():
                             new_exp = max(exp_date, datetime.now()) + timedelta(days=84)
                             supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d")}).eq("username", usr['username']).execute()
                             st.rerun()
-                        new_stat = 'inactive' if status == 'active' else 'active'
-                        if c3.button(f"Mark {new_stat.upper()}", key=f"s_{usr['username']}"):
-                            supabase.table("user_profiles").update({"status": new_status}).eq("username", usr['username']).execute()
+                        
+                        # Fix for NameError
+                        new_status_val = 'inactive' if status == 'active' else 'active'
+                        btn_label = f"Mark {new_status_val.upper()}"
+                        if c3.button(btn_label, key=f"s_{usr['username']}"):
+                            supabase.table("user_profiles").update({"status": new_status_val}).eq("username", usr['username']).execute()
                             st.rerun()
             else: st.warning("No user found.")
         
@@ -172,7 +174,6 @@ def admin_panel():
             new_p = st.text_input("New Password")
             lat = st.number_input("Lat", value=25.5941, format="%.7f")
             lon = st.number_input("Lon", value=85.1376, format="%.7f")
-            # --- YAHAN PLAN OPTION ADD KIYA HAI ---
             plan_selection = st.selectbox("Assign Plan", ["1 Month (28 Days)", "3 Months (84 Days)", "Custom Date"])
             custom_exp = st.date_input("Select Date (if Custom)", value=datetime.now() + timedelta(days=30))
             
