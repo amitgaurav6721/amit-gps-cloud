@@ -9,7 +9,7 @@ from supabase import create_client, Client
 # --- CONFIG ---
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
-QR_URL = "https://ibb.co/DDdhFfvs" # <--- YAHAN APNI QR IMAGE LINK DALO
+QR_URL = "https://i.ibb.co/99P60H1z/Whats-App-Image-2026-03-30-at-23-26-19.jpg" # <--- YAHAN APNI QR IMAGE LINK DALO
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(page_title="Bihar VLTS Pro Max", layout="wide")
