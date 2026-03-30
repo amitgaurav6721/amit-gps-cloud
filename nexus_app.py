@@ -57,6 +57,10 @@ def get_tags():
         return [item['tag_name'] for item in res.data]
     return existing
 
+def add_new_tag(new_tag):
+    if new_tag:
+        supabase.table("custom_tags").upsert({"tag_name": new_tag.upper().strip()}).execute()
+
 def delete_tag(tag_name):
     supabase.table("custom_tags").delete().eq("tag_name", tag_name).execute()
 
@@ -109,19 +113,17 @@ def contact_us_page(reason="general"):
         clean_no = ''.join(filter(str.isdigit, str(contact.get('whatsapp_no', ''))))
         if clean_no:
             st.markdown(f"[![Chat](https://img.shields.io/badge/WhatsApp-Chat-green?style=for-the-badge&logo=whatsapp)](https://wa.me/{clean_no})")
-        
         st.subheader("📧 Email Support")
         st.write(contact.get('email_id'))
 
     with c2:
         st.subheader("🕒 Support Timings")
         st.write(contact.get('support_time'))
-        
-        st.subheader("🆔 Your Customer ID")
+        st.subheader("🆔 Customer ID")
         st.code(f"CID-{1000 + st.session_state.u_data.get('cid_id', 0)}")
 
-    st.divider()
     if st.session_state.u_data and st.session_state.u_data.get('status') == 'active':
+        st.divider()
         if st.button("⬅️ Back to Dashboard"): 
             st.session_state.page = "dashboard"
             st.rerun()
@@ -131,66 +133,50 @@ def recharge_page():
     u_data = st.session_state.u_data
     cid = u_data.get('cid_id', 0)
     user_id = st.session_state.user
-    
     st.title("💳 Recharge Your Plan")
     
-    # Check for pending request
     pending_check = supabase.table("recharge_requests").select("id").eq("username", user_id).eq("status", "pending").execute()
     is_pending = len(pending_check.data) > 0
     
     col_img, col_form = st.columns([1, 2])
-    
     with col_img:
         st.image(QR_URL, caption="Scan QR to Pay", width=200)
         st.info(f"Customer ID: **CID-{1000 + cid}**")
-        
         st.subheader("📜 History")
         history = supabase.table("recharge_requests").select("*").eq("username", user_id).order("id", desc=True).limit(3).execute()
         if history.data:
             for h in history.data:
                 icon = "⏳" if h['status'] == 'pending' else "✅"
                 st.write(f"{icon} {h['amount']} - {h['status'].title()}")
-        else:
-            st.write("No records found.")
+        else: st.write("No records.")
 
     with col_form:
         st.subheader("Step 1: Pay via UPI")
         st.info(f"**UPI ID:** `{contact.get('upi_id', 'admin@upi')}`")
         st.divider()
         st.subheader("Step 2: Submit Details")
-        
         c1, c2 = st.columns(2)
         c1.text_input("CID Number", value=f"CID-{1000+cid}", disabled=True)
         mobile_no = c2.text_input("Mobile No (10 Digit)", placeholder="XXXXXXXXXX", max_chars=10)
-        
         utr = st.text_input("UTR / Transaction ID", placeholder="12 digit number")
         plans = get_plans()
         amt = st.selectbox("Choose Plan", [f"₹{p['amount']} - {p['plan_name']} ({p['days']} Days)" for p in plans])
         
         if is_pending:
-            st.warning("⚠️ Aapki ek request pehle se **Pending** hai. Approval ka wait karein.")
+            st.warning("⚠️ Aapki ek request pehle se **Pending** hai.")
             st.button("Request Pending...", disabled=True, use_container_width=True)
         else:
             if st.button("Submit Recharge Request", use_container_width=True):
                 if utr and len(mobile_no) == 10:
                     existing_utr = supabase.table("recharge_requests").select("id").eq("utr_number", utr).execute()
-                    if len(existing_utr.data) > 0:
-                        st.error(f"❌ UTR `{utr}` pehle hi use ho chuka hai.")
+                    if len(existing_utr.data) > 0: st.error("❌ UTR used.")
                     else:
                         try:
-                            supabase.table("recharge_requests").insert({
-                                "username": user_id, "utr_number": utr, "amount": amt,
-                                "mobile_no": mobile_no, "cid_display": f"CID-{1000+cid}", "status": "pending"
-                            }).execute()
-                            st.success("✅ Request Sent Successfully!"); time.sleep(2); st.session_state.page = "dashboard"; st.rerun()
-                        except Exception as e:
-                            st.error(f"Error: {str(e)}")
-                else:
-                    st.warning("Kripya 10-digit Mobile No aur UTR sahi se bharein.")
-
-    if st.button("⬅️ Back"): 
-        st.session_state.page = "dashboard"
-        st.rerun()
+                            supabase.table("recharge_requests").insert({"username": user_id, "utr_number": utr, "amount": amt, "mobile_no": mobile_no, "cid_display": f"CID-{1000+cid}", "status": "pending"}).execute()
+                            st.success("✅ Request Sent!"); time.sleep(2); st.session_state.page = "dashboard"; st.rerun()
+                        except: st.error("System Error")
+                else: st.warning("Check Mobile & UTR")
+    if st.button("⬅️ Back"): st.session_state.page = "dashboard"; st.rerun()
 
 def admin_panel():
     st.sidebar.title("Admin Dashboard")
@@ -202,12 +188,9 @@ def admin_panel():
         search_input = st.text_input("Search (Name or CID)")
         if search_input:
             search_input = search_input.strip()
-            if search_input.isdigit():
-                u_search = supabase.table("user_profiles").select("*").eq("cid_id", int(search_input)-1000).execute()
-            elif search_input.upper().startswith("CID-"):
-                u_search = supabase.table("user_profiles").select("*").eq("cid_id", int(search_input.split("-")[1])-1000).execute()
-            else:
-                u_search = supabase.table("user_profiles").select("*").ilike("username", f"%{search_input}%").execute()
+            if search_input.isdigit(): u_search = supabase.table("user_profiles").select("*").eq("cid_id", int(search_input)-1000).execute()
+            elif search_input.upper().startswith("CID-"): u_search = supabase.table("user_profiles").select("*").eq("cid_id", int(search_input.split("-")[1])-1000).execute()
+            else: u_search = supabase.table("user_profiles").select("*").ilike("username", f"%{search_input}%").execute()
             if u_search.data:
                 for usr in u_search.data:
                     exp_date = datetime.strptime(usr['expiry_date'], '%Y-%m-%d')
@@ -225,14 +208,23 @@ def admin_panel():
                         new_s = 'inactive' if status == 'active' else 'active'
                         if c3.button(f"Mark {new_s.upper()}", key=f"s_{usr['username']}"):
                             supabase.table("user_profiles").update({"status": new_s}).eq("username", usr['username']).execute(); st.rerun()
-    
+        st.divider()
+        st.subheader("➕ Create New User")
+        with st.form("new_user_form"):
+            nu, np = st.text_input("New Username"), st.text_input("New Password")
+            lat, lon = st.number_input("Lat", 25.5941, format="%.7f"), st.number_input("Lon", 85.1376, format="%.7f")
+            if st.form_submit_button("Create User"):
+                if nu and np:
+                    supabase.table("user_profiles").insert({"username": nu, "password": np, "latitude": lat, "longitude": lon, "expiry_date": (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d"), "status": "active"}).execute()
+                    st.success("User Created!"); st.rerun()
+
     with menu[2]:
         st.subheader("Pending Recharges")
         reqs = supabase.table("recharge_requests").select("*").eq("status", "pending").execute()
         if reqs.data:
             st.dataframe(pd.DataFrame(reqs.data))
             for r in reqs.data:
-                if st.button(f"Approve {r['username']} (UTR: {r['utr_number']})", key=f"app_{r['id']}"):
+                if st.button(f"Approve {r['username']} ({r['utr_number']})", key=f"app_{r['id']}"):
                     try: days = int(r['amount'].split('(')[1].split(' ')[0])
                     except: days = 28
                     user_res = supabase.table("user_profiles").select("expiry_date").eq("username", r['username']).execute()
@@ -240,12 +232,12 @@ def admin_panel():
                     supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d"), "status": "active"}).eq("username", r['username']).execute()
                     supabase.table("recharge_requests").update({"status": "approved"}).eq("id", r['id']).execute()
                     st.success("Approved!"); st.rerun()
-        else: st.write("No pending requests.")
+        else: st.write("No requests.")
 
     with menu[3]:
         st.subheader("⚙️ Settings")
         curr = get_contact_details()
-        with st.form("settings"):
+        with st.form("settings_form"):
             w, e, t, u = st.text_input("WhatsApp", curr.get('whatsapp_no')), st.text_input("Email", curr.get('email_id')), st.text_input("Hours", curr.get('support_time')), st.text_input("UPI ID", curr.get('upi_id'))
             if st.form_submit_button("Save All Settings"):
                 supabase.table("contact_settings").upsert({"id": 1, "whatsapp_no": w, "email_id": e, "support_time": t, "upi_id": u}).execute(); st.success("Saved Live!")
@@ -253,7 +245,7 @@ def admin_panel():
     with menu[1]:
         st.subheader("🚀 Master Injector")
         vno, imei = st.text_input("V-No", "BR01P1234").upper(), st.text_input("IMEI", "865432109876543")
-        lat_m, lon_m = st.number_input("Lat", 25.5941, format="%.7f"), st.number_input("Lon", 85.1376, format="%.7f")
+        lat_m, lon_m = st.number_input("Lat Master", 25.5941, format="%.7f"), st.number_input("Lon Master", 85.1376, format="%.7f")
         if not st.session_state.admin_running:
             if st.button("🔥 START MASTER", type="primary", use_container_width=True): st.session_state.admin_running = True; st.rerun()
         else:
@@ -270,6 +262,10 @@ def admin_panel():
     
     with menu[4]:
         st.subheader("Manage Tags")
+        ta = st.text_input("Add New Tag Name")
+        if st.button("➕ Add Tag"):
+            if ta: add_new_tag(ta); st.success(f"Tag {ta} Added!"); st.rerun()
+        st.divider()
         tags = get_tags()
         for t in tags:
             c1, c2 = st.columns([4, 1])
