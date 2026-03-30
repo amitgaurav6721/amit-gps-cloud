@@ -103,12 +103,12 @@ def contact_us_page(reason="general"):
     contact = get_contact_details()
     st.title("📞 Contact Support")
     if reason == "deactivated":
-        st.error("⚠️ Account Deactivated. Dubara active karne ke liye Recharge karein ya Support se sampark karein.")
+        st.error("⚠️ Account Deactivated. Dubara active karne ke liye Recharge karein.")
     
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
-        st.subheader("📱 WhatsApp")
+        st.subheader("📱 WhatsApp Support")
         st.write(contact.get('whatsapp_no'))
         clean_no = ''.join(filter(str.isdigit, str(contact.get('whatsapp_no', ''))))
         if clean_no:
@@ -123,7 +123,6 @@ def contact_us_page(reason="general"):
         st.code(f"CID-{1000 + st.session_state.u_data.get('cid_id', 0)}")
 
     if st.session_state.u_data and st.session_state.u_data.get('status') == 'active':
-        st.divider()
         if st.button("⬅️ Back to Dashboard"): 
             st.session_state.page = "dashboard"
             st.rerun()
@@ -157,24 +156,21 @@ def recharge_page():
         st.subheader("Step 2: Submit Details")
         c1, c2 = st.columns(2)
         c1.text_input("CID Number", value=f"CID-{1000+cid}", disabled=True)
-        mobile_no = c2.text_input("Mobile No (10 Digit)", placeholder="XXXXXXXXXX", max_chars=10)
+        mobile_no = c2.text_input("Mobile No", placeholder="XXXXXXXXXX", max_chars=10)
         utr = st.text_input("UTR / Transaction ID", placeholder="12 digit number")
         plans = get_plans()
         amt = st.selectbox("Choose Plan", [f"₹{p['amount']} - {p['plan_name']} ({p['days']} Days)" for p in plans])
         
         if is_pending:
-            st.warning("⚠️ Aapki ek request pehle se **Pending** hai.")
-            st.button("Request Pending...", disabled=True, use_container_width=True)
+            st.warning("⚠️ Request Pending...")
+            st.button("Submit Request", disabled=True, use_container_width=True)
         else:
             if st.button("Submit Recharge Request", use_container_width=True):
                 if utr and len(mobile_no) == 10:
-                    existing_utr = supabase.table("recharge_requests").select("id").eq("utr_number", utr).execute()
-                    if len(existing_utr.data) > 0: st.error("❌ UTR used.")
-                    else:
-                        try:
-                            supabase.table("recharge_requests").insert({"username": user_id, "utr_number": utr, "amount": amt, "mobile_no": mobile_no, "cid_display": f"CID-{1000+cid}", "status": "pending"}).execute()
-                            st.success("✅ Request Sent!"); time.sleep(2); st.session_state.page = "dashboard"; st.rerun()
-                        except: st.error("System Error")
+                    try:
+                        supabase.table("recharge_requests").insert({"username": user_id, "utr_number": utr, "amount": amt, "mobile_no": mobile_no, "cid_display": f"CID-{1000+cid}", "status": "pending"}).execute()
+                        st.success("✅ Request Sent!"); time.sleep(2); st.session_state.page = "dashboard"; st.rerun()
+                    except: st.error("UTR used or Error")
                 else: st.warning("Check Mobile & UTR")
     if st.button("⬅️ Back"): st.session_state.page = "dashboard"; st.rerun()
 
@@ -212,11 +208,20 @@ def admin_panel():
         st.subheader("➕ Create New User")
         with st.form("new_user_form"):
             nu, np = st.text_input("New Username"), st.text_input("New Password")
+            # --- Plan Selection added back ---
+            plans = get_plans()
+            plan_options = [f"{p['plan_name']} ({p['days']} Days)" for p in plans]
+            selected_plan = st.selectbox("Assign Active Plan", plan_options)
+            
             lat, lon = st.number_input("Lat", 25.5941, format="%.7f"), st.number_input("Lon", 85.1376, format="%.7f")
             if st.form_submit_button("Create User"):
                 if nu and np:
-                    supabase.table("user_profiles").insert({"username": nu, "password": np, "latitude": lat, "longitude": lon, "expiry_date": (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d"), "status": "active"}).execute()
-                    st.success("User Created!"); st.rerun()
+                    try:
+                        days = int(selected_plan.split('(')[1].split(' ')[0])
+                    except: days = 28
+                    exp = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+                    supabase.table("user_profiles").insert({"username": nu, "password": np, "latitude": lat, "longitude": lon, "expiry_date": exp, "status": "active"}).execute()
+                    st.success(f"User {nu} Created with {days} days plan!"); st.rerun()
 
     with menu[2]:
         st.subheader("Pending Recharges")
@@ -245,7 +250,7 @@ def admin_panel():
     with menu[1]:
         st.subheader("🚀 Master Injector")
         vno, imei = st.text_input("V-No", "BR01P1234").upper(), st.text_input("IMEI", "865432109876543")
-        lat_m, lon_m = st.number_input("Lat Master", 25.5941, format="%.7f"), st.number_input("Lon Master", 85.1376, format="%.7f")
+        lat_m, lon_m = st.number_input("Lat", 25.5941, format="%.7f"), st.number_input("Lon", 85.1376, format="%.7f")
         if not st.session_state.admin_running:
             if st.button("🔥 START MASTER", type="primary", use_container_width=True): st.session_state.admin_running = True; st.rerun()
         else:
