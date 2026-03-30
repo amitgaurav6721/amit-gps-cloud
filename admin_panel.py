@@ -12,11 +12,11 @@ PORT = 9999
 
 def send_vlts_raw(host, port, raw_packet):
     try:
-        # EK DUM SAHI FORMAT: No spaces at all
-        final_to_send = raw_packet + "\r\n"
+        # ⚠️ YAHAN DEKH: BILKUL BHI SPACE NAHI HAI
+        final_to_send = raw_packet.strip() + "\r\n"
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        s.settimeout(5)
+        s.settimeout(8) # Timeout thoda badha diya hai
         s.connect((host, port))
         s.sendall(final_to_send.encode('ascii'))
         s.close()
@@ -32,25 +32,27 @@ def admin_panel():
     
     t1, t2, t3, t4, t5 = st.tabs(["📊 Reports", "🚀 Bulk Simulator", "🏷️ Tag Manager", "👤 User Control", "💳 Recharges"])
     
-    # --- TAB 1: REPORTS ---
+    # --- TAB 1: REPORTS (FIXED) ---
     with t1:
         st.subheader("📊 Live Activity Reports")
         if st.button("🔄 Refresh Logs", use_container_width=True):
             st.rerun()
         try:
-            res = supabase.table("activity_logs").select("*").order("created_at", desc=True).limit(20).execute()
+            # Sidhe activity_logs table se data fetch
+            res = supabase.table("activity_logs").select("*").order("created_at", desc=True).limit(25).execute()
             if res.data:
                 df = pd.DataFrame(res.data)
-                if 'id' in df.columns: df = df.drop(columns=['id'])
-                st.dataframe(df, use_container_width=True)
+                # Purana kachra columns hatana
+                cols_to_show = [c for c in ['created_at', 'vehicle_no', 'user_id'] if c in df.columns]
+                st.dataframe(df[cols_to_show], use_container_width=True)
             else:
-                st.info("No logs found. Start the simulator first.")
+                st.info("Log table khali hai. Simulator chalao pehle.")
         except Exception as e:
-            st.error(f"Report Error: {e}")
+            st.error(f"Report fetch nahi hui: {e}")
 
-    # --- TAB 2: BULK SIMULATOR ---
+    # --- TAB 2: BULK SIMULATOR (STRICT FORMAT) ---
     with t2:
-        st.subheader("🛰️ Bihar VLTS Movement Simulator (Bulk)")
+        st.subheader("🛰️ Bihar VLTS Movement Simulator")
         
         with st.container(border=True):
             c1, c2, c3 = st.columns(3)
@@ -62,17 +64,16 @@ def admin_panel():
             simulate_move = c3.checkbox("🚀 Live Movement", value=True)
 
         all_db_tags = get_tags()
-        st.write(f"✅ **{len(all_db_tags)} Tags** loaded from DB.")
+        st.write(f"✅ **{len(all_db_tags)} Tags** ready to fire.")
 
         suffix = "0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
         fixed_cs = "DDE3"
 
         st.divider()
-        col_btn, col_info = st.columns([1, 2])
-        
         if 'injecting' not in st.session_state:
             st.session_state.injecting = False
 
+        col_btn, col_txt = st.columns([1, 2])
         if not st.session_state.injecting:
             if col_btn.button("🚀 START TRANSMISSION", type="primary", use_container_width=True):
                 st.session_state.injecting = True
@@ -82,9 +83,9 @@ def admin_panel():
                 st.session_state.injecting = False
                 st.rerun()
             
-            status_msg = st.empty()
-            preview_box = st.empty() 
-            log_container = st.empty()
+            status_box = st.empty()
+            preview_box = st.empty()
+            log_box = st.empty()
             cur_lat, cur_lon = base_lat, base_lon
             
             while st.session_state.injecting:
@@ -96,29 +97,26 @@ def admin_panel():
                     cur_lon += random.uniform(0.00001, 0.00005)
                 
                 loc_str = f"{cur_lat:.7f},N,{cur_lon:.7f},E"
-                sent_details = []
-                all_packets_preview = "" 
-
-                for tag in all_db_tags:
-                    packet = f"$PVT,{tag},2.1.1,NR,01,L,{i_no},{v_no},1,{d_now},{t_now},{loc_str},{suffix},{fixed_cs}*"
-                    all_packets_preview += f"🔹 [{tag}]: {packet}\n\n"
-                    
-                    success = send_vlts_raw(HOST_URL, PORT, packet)
-                    sent_details.append(f"✅ {tag}" if success else f"❌ {tag}")
-
-                status_msg.success(f"✅ Batch Complete: {len(all_db_tags)} Tags fired at {t_now}")
-                preview_box.text_area("🛰️ Live Bulk Data (All Tags)", value=all_packets_preview, height=350)
+                all_tags_preview = ""
+                sent_count = 0
                 
-                with log_container.expander("📝 Live Tag Checklist", expanded=True):
-                    st.write(", ".join(sent_details))
-
-                # Database mein log save karna zaroori hai tabhi Report dikhegi
+                for tag in all_db_tags:
+                    # EXACT STRING FORMAT - NO SPACES
+                    packet = f"$PVT,{tag},2.1.1,NR,01,L,{i_no},{v_no},1,{d_now},{t_now},{loc_str},{suffix},{fixed_cs}*"
+                    all_tags_preview += f"🔹 [{tag}]: {packet}\n\n"
+                    
+                    if send_vlts_raw(HOST_URL, PORT, packet):
+                        sent_count += 1
+                
+                status_box.success(f"✅ Sent {sent_count}/{len(all_db_tags)} tags at {t_now}")
+                preview_box.text_area("Live Bulk Preview", value=all_tags_preview, height=300)
+                
+                # --- LOGGING TO SUPABASE ---
                 try:
                     supabase.table("activity_logs").insert({
                         "user_id": 1, 
-                        "vehicle_no": f"SIM: {v_no} ({len(all_db_tags)} Tags)"
+                        "vehicle_no": f"BATCH: {v_no} ({sent_count} Tags)"
                     }).execute()
                 except: pass
-
+                
                 time.sleep(gap)
-                log_container.empty()
