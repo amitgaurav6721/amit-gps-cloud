@@ -51,17 +51,18 @@ def admin_panel():
                             "updated_at": datetime.now().isoformat()
                         }).execute()
                         
-                        # 2. FIX: Using a real ID from your user_profiles table (assuming ID 1 exists)
-                        # Agar error aaye, toh is line ko comment (#) kar dena
+                        # 2. Activity Log (Using .limit(1) to get any valid user ID dynamically)
+                        user_res = supabase.table("user_profiles").select("id").limit(1).execute()
+                        valid_id = user_res.data[0]['id'] if user_res.data else 1
+                        
                         supabase.table("activity_logs").insert({
-                            "user_id": 1, 
+                            "user_id": valid_id, 
                             "vehicle_no": f"BURST_START: {v_no}"
                         }).execute()
                         
                         st.session_state.injecting = True
                         st.rerun()
                     except Exception as e:
-                        # Agar logs fail ho, tab bhi injector chalu rakhenge
                         st.warning(f"Logging skipped, but starting injector...")
                         st.session_state.injecting = True
                         st.rerun()
@@ -73,6 +74,7 @@ def admin_panel():
             status_box = col_status.empty()
             
             try:
+                # Persistent socket connection
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(5)
                     s.connect((HOST_URL, PORT))
@@ -82,7 +84,7 @@ def admin_panel():
                         t_now = datetime.now().strftime("%H%M%S")
                         
                         for current_tag in all_db_tags:
-                            # FIXED: Removed extra spaces in \r\n
+                            # FIXED: Strictly no spaces after * and inside \r\n
                             packet = f"$PVT,{current_tag},2.1.1,NR,01,L,{i_no},{v_no},1,{d_now},{t_now},{lat_in:.7f},N,{lon_in:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*\r\n"
                             s.sendall(packet.encode('utf-8'))
                         
@@ -93,7 +95,7 @@ def admin_panel():
                 st.error(f"Server Connection Lost: {e}")
                 st.session_state.injecting = False
 
-    # --- TAB 3: TAG MANAGER ---
+    # --- OTHER TABS (REPORTS, TAGS, etc.) ---
     with t3:
         st.subheader("🏷️ Tag Control")
         c_in, c_save = st.columns([3, 1])
@@ -114,14 +116,12 @@ def admin_panel():
                         supabase.table("custom_tags").delete().eq("tag_name", t['tag_name']).execute()
                         st.rerun()
 
-    # --- TAB 1: REPORTS ---
     with t1:
         st.subheader("📊 Activity Logs")
         logs = supabase.table("activity_logs").select("*").order("created_at", desc=True).limit(15).execute()
         if logs.data:
             st.dataframe(pd.DataFrame(logs.data), use_container_width=True)
 
-    # --- TAB 4: USER CONTROL ---
     with t4:
         st.subheader("👤 User Management")
-        st.info("Searching and editing users will be available here.")
+        st.info("User searching and editing will be here.")
