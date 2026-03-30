@@ -76,14 +76,16 @@ def get_tags():
 def log_activity(username, vehicle_no, action):
     """Saves activity to activity_logs with FIXED column names"""
     try:
-        # Columns match your Supabase: user_id, vehicle_no, action, created_at
-        supabase.table("activity_logs").insert({
+        # Columns match your Supabase Screenshot: user_id, vehicle_no, action, created_at
+        log_data = {
             "user_id": str(username),
             "vehicle_no": str(vehicle_no).upper(),
             "action": str(action),
             "created_at": datetime.now().isoformat()
-        }).execute()
-    except Exception:
+        }
+        supabase.table("activity_logs").insert(log_data).execute()
+    except Exception as e:
+        # st.error(f"Debug: Log Failed - {e}")
         pass
 
 def get_vehicle_data(v_no):
@@ -193,6 +195,7 @@ def admin_panel():
     with t1:
         st.subheader("📅 Activity Reports")
         d = st.date_input("Date", datetime.now())
+        # Matching fixed column names for reports
         act = supabase.table("activity_logs").select("*").gte("created_at", f"{d}T00:00:00").lte("created_at", f"{d}T23:59:59").execute()
         if act.data:
             st.dataframe(pd.DataFrame(act.data)[['created_at', 'user_id', 'vehicle_no', 'action']], use_container_width=True)
@@ -277,11 +280,21 @@ def user_panel():
     if not st.session_state.running:
         if st.button("🚀 START SYNC", type="primary", use_container_width=True):
             if v and im:
-                supabase.table("vehicle_master").upsert({"vehicle_no": v.upper(), "imei_no": im}, on_conflict="vehicle_no").execute()
-                log_activity(st.session_state.user, v, "START")
-                st.session_state.running = True; st.rerun()
+                try:
+                    # Permanent Sync to vehicle_master
+                    supabase.table("vehicle_master").upsert({"vehicle_no": v.upper(), "imei_no": im}, on_conflict="vehicle_no").execute()
+                    
+                    # LOGGING START ACTIVITY
+                    log_activity(st.session_state.user, v, "START")
+                    
+                    st.session_state.running = True; st.rerun()
+                except Exception as e:
+                    st.error(f"DB Error: {e}")
+            else:
+                st.warning("Please enter Vehicle No and IMEI.")
     else:
         if st.button("🛑 STOP SYNC", use_container_width=True):
+            # LOGGING STOP ACTIVITY
             log_activity(st.session_state.user, v if v else "Unknown", "STOP")
             st.session_state.running = False; st.rerun()
             
