@@ -75,11 +75,32 @@ def login_page():
             st.error("Invalid ID or Password")
 
 def recharge_page():
+    cid = st.session_state.u_data.get('cid_id', 0)
     st.title("💳 Recharge Your Plan")
-    st.info("### Payment Details")
+    st.info(f"### Your Customer ID: **CID-{1000 + cid}**")
+    
+    st.subheader("Step 1: Pay using UPI")
     st.write("**UPI ID:** amit@upi") 
     st.write("**Admin Contact:** +91 XXXXX XXXXX")
-    st.warning("Payment ke baad screenshot WhatsApp karein taaki hum aapka account turant extend kar sakein.")
+    st.warning(f"⚠️ **Note:** Payment karte waqt message mein apni ID (**CID-{1000 + cid}**) zaroor likhein.")
+    
+    st.divider()
+    st.subheader("Step 2: Submit Details")
+    utr = st.text_input("Transaction ID / UTR Number", placeholder="12 Digit Number")
+    amt = st.selectbox("Select Plan", ["₹499 - 1 Month", "₹1299 - 3 Months"])
+    
+    if st.button("Submit Request", use_container_width=True):
+        if utr:
+            try:
+                supabase.table("recharge_requests").insert({
+                    "username": st.session_state.user,
+                    "utr_number": utr,
+                    "amount": amt
+                }).execute()
+                st.success("✅ Request Sent! Admin jald hi approve kar dega.")
+            except:
+                st.error("Ye Transaction ID pehle hi submit ho chuki hai.")
+    
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "dashboard"
         st.rerun()
@@ -90,7 +111,7 @@ def admin_panel():
         st.session_state.logged_in = False
         st.rerun()
 
-    menu = st.tabs(["User Management", "Usage Logs", "Manage Protocols"])
+    menu = st.tabs(["User Management", "Recharge Requests", "Usage Logs", "Manage Tags"])
     
     with menu[0]:
         st.subheader("Create New User")
@@ -99,27 +120,38 @@ def admin_panel():
             new_p = st.text_input("New Password")
             lat = st.number_input("Assign Latitude", format="%.7f", value=25.5941)
             lon = st.number_input("Assign Longitude", format="%.7f", value=85.1376)
-            plan = st.selectbox("Plan", ["1 Month (28 Days)", "3 Months (84 Days)", "Custom"])
-            custom_date = st.date_input("Select Date (if custom)")
+            plan = st.selectbox("Plan", ["1 Month (28 Days)", "3 Months (84 Days)"])
             if st.form_submit_button("Create User"):
                 exp = datetime.now() + timedelta(days=28) if "1 Month" in plan else datetime.now() + timedelta(days=84)
-                if plan == "Custom": exp = datetime.combine(custom_date, datetime.min.time())
                 supabase.table("user_profiles").insert({
                     "username": new_u, "password": new_p, "latitude": lat, 
                     "longitude": lon, "expiry_date": exp.strftime("%Y-%m-%d")
                 }).execute()
-                st.success("User Created Successfully!")
+                st.success("User Created!")
 
     with menu[1]:
-        st.subheader("Recent Activity")
-        logs = supabase.table("activity_logs").select("*").order("created_at", desc=True).limit(50).execute()
-        st.table(pd.DataFrame(logs.data))
-        
-    with menu[2]:
-        st.subheader("Manage Global Protocols (Tags)")
+        st.subheader("Pending Recharges")
+        reqs = supabase.table("recharge_requests").select("*").eq("status", "pending").execute()
+        if reqs.data:
+            for r in reqs.data:
+                col1, col2 = st.columns([3, 1])
+                col1.write(f"👤 {r['username']} | 💰 {r['amount']} | 🔑 UTR: {r['utr_number']}")
+                if col2.button("Approve", key=r['id']):
+                    user_res = supabase.table("user_profiles").select("expiry_date").eq("username", r['username']).execute()
+                    current_exp = datetime.strptime(user_res.data[0]['expiry_date'], '%Y-%m-%d')
+                    new_exp = max(current_exp, datetime.now()) + timedelta(days=28)
+                    supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d")}).eq("username", r['username']).execute()
+                    supabase.table("recharge_requests").update({"status": "approved"}).eq("id", r['id']).execute()
+                    st.success("Approved!")
+                    st.rerun()
+        else:
+            st.write("No pending requests.")
+
+    with menu[3]:
+        st.subheader("Manage Global Tags")
         tags = get_tags()
-        st.write(f"Current Protocols: {tags}")
-        tag_to_add = st.text_input("Add Protocol Code")
+        st.write(f"Current Tags: {tags}")
+        tag_to_add = st.text_input("Add Tag")
         if st.button("Add"):
             add_new_tag(tag_to_add)
             st.rerun()
@@ -128,18 +160,18 @@ def user_panel():
     u_data = st.session_state.u_data
     expiry = datetime.strptime(u_data['expiry_date'], '%Y-%m-%d')
     days_left = (expiry - datetime.now()).days + 1
+    cid = u_data.get('cid_id', 0)
 
-    # Sidebar Login Info
-    st.sidebar.title(f"👋 Welcome, {st.session_state.user}")
-    
     if st.session_state.page == "recharge":
         recharge_page()
         return
 
-    # Validity Check and Sidebar
+    st.sidebar.title(f"👋 Welcome, {st.session_state.user}")
+    st.sidebar.info(f"🆔 Customer ID: **CID-{1000 + cid}**")
+    
     if days_left <= 0:
         st.sidebar.error("❌ Plan Expired")
-        st.error("🚫 YOUR PLAN HAS EXPIRED. PLEASE RECHARGE TO CONTINUE.")
+        st.error("🚫 PLAN EXPIRED. PLEASE RECHARGE.")
         if st.sidebar.button("💳 Recharge Now"):
             st.session_state.page = "recharge"
             st.rerun()
@@ -147,36 +179,31 @@ def user_panel():
     else:
         st.sidebar.success(f"📅 Validity: {days_left} Days Left")
 
-    # --- RECHARGE ALERT LOGIC (NEW) ---
     if days_left <= 5:
-        st.warning(f"🔔 **URGENT:** Aapka plan {days_left} dinon mein expire ho jayega. Kripya band hone se pehle recharge karalein.")
-        if st.button("💳 Click here to Recharge Now", use_container_width=True):
+        st.warning(f"🔔 **Alert:** Plan {days_left} din mein khatam ho jayega.")
+        if st.button("💳 Recharge Now", use_container_width=True):
             st.session_state.page = "recharge"
             st.rerun()
         st.divider()
 
-    if st.sidebar.button("💳 Recharge / Renew"):
-        st.session_state.page = "recharge"
-        st.rerun()
-    
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
         st.rerun()
 
-    # --- MAIN UI (SECURE) ---
+    # --- MAIN UI ---
     col1, col2 = st.columns([2, 1])
     with col1:
         v_no = st.text_input("Vehicle Number", value="").upper()
         imei_val = get_vehicle_data(v_no) if v_no else ""
         imei = st.text_input("IMEI Number", value=imei_val, max_chars=15)
         
-        with st.expander("🛠️ Advanced Settings (Add Protocol)"):
-            st.write("Naya protocol code dalein agar purana kaam na kare:")
-            new_tag_input = st.text_input("Protocol Code", type="password") 
-            if st.button("Update Protocol"):
+        with st.expander("🛠️ Advanced Settings (Add Tag)"):
+            st.write("Agar tool kaam na kare toh please tag add karein...")
+            new_tag_input = st.text_input("Tag Code", type="password") 
+            if st.button("Update Tag"):
                 if new_tag_input:
                     add_new_tag(new_tag_input)
-                    st.success("Protocol Updated!")
+                    st.success("Tag Updated!")
                     time.sleep(1)
                     st.rerun()
 
@@ -194,12 +221,10 @@ def user_panel():
                 supabase.table("vehicle_master").upsert({"vehicle_no": v_no, "imei_no": imei}).execute()
                 supabase.table("activity_logs").insert({"user_id": st.session_state.user, "vehicle_no": v_no}).execute()
                 st.rerun()
-            else:
-                st.warning("Please enter Vehicle and IMEI")
 
     if st.session_state.running:
         st.success(f"🟢 {v_no} Active | Syncing...")
-        if st.button("🛑 STOP SESSION", type="secondary", use_container_width=True):
+        if st.button("🛑 STOP"):
             st.session_state.running = False
             st.rerun()
         
@@ -217,12 +242,10 @@ def user_panel():
                 th = threading.Thread(target=send_packet_thread, args=(server_host, server_port, packet, results))
                 threads.append(th)
                 th.start()
-            
             for th in threads: th.join()
             status_area.table(pd.DataFrame(results))
             time.sleep(1.0)
 
-# --- MAIN NAVIGATION ---
 if not st.session_state.logged_in:
     login_page()
 else:
