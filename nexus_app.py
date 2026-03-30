@@ -10,8 +10,8 @@ from supabase import create_client, Client
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
 
-# UPDATED: Direct Image Link (Agar ye na dikhe toh Admin Settings se UPI ID update karein)
-QR_URL = "https://raw.githubusercontent.com/amitgaurav6721/amit-gps-cloud/main/WhatsApp-Image-2026-03-30-at-23-26-19.jpg"
+# UPDATED: Nayi ImgBB Direct Link jo aapne di hai
+QR_URL = "https://i.ibb.co/99P60H1z/Whats-App-Image-2026-03-30-at-23-26-19.jpg"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -128,8 +128,8 @@ def recharge_page():
     st.title("💳 Recharge Your Plan")
     col_a, col_b = st.columns([1, 2])
     with col_a:
-        # st.image fix: Added use_container_width
-        st.image(QR_URL, caption="Scan QR to Pay", width=300)
+        # st.image fixed with new URL
+        st.image(QR_URL, caption="Scan QR to Pay", width=350)
         st.info(f"ID: **CID-{1000 + cid}**")
     with col_b:
         st.subheader("Step 1: Pay")
@@ -145,7 +145,7 @@ def recharge_page():
             try:
                 supabase.table("recharge_requests").insert({"username": st.session_state.user, "utr_number": utr, "amount": amt}).execute()
                 st.success("✅ Request Sent!"); time.sleep(2); st.session_state.page = "dashboard"; st.rerun()
-            except: st.error("UTR already used.")
+            except: st.error("UTR used.")
     if st.button("⬅️ Back"): st.session_state.page = "dashboard"; st.rerun()
 
 def admin_panel():
@@ -232,13 +232,9 @@ def admin_panel():
         st.subheader("⚙️ System Settings")
         curr = get_contact_details()
         with st.form("settings"):
-            w = st.text_input("WhatsApp Number", curr.get('whatsapp_no', ''))
-            e = st.text_input("Email ID", curr.get('email_id', ''))
-            t = st.text_input("Working Hours", curr.get('support_time', ''))
-            u = st.text_input("Recharge UPI ID", curr.get('upi_id', ''))
+            w, e, t, u = st.text_input("WhatsApp", curr.get('whatsapp_no', '')), st.text_input("Email", curr.get('email_id', '')), st.text_input("Hours", curr.get('support_time', '')), st.text_input("UPI ID", curr.get('upi_id', ''))
             if st.form_submit_button("Save All Settings"):
-                supabase.table("contact_settings").upsert({"id": 1, "whatsapp_no": w, "email_id": e, "support_time": t, "upi_id": u}).execute()
-                st.success("Settings Saved Live!")
+                supabase.table("contact_settings").upsert({"id": 1, "whatsapp_no": w, "email_id": e, "support_time": t, "upi_id": u}).execute(); st.success("Saved!")
     with menu[4]:
         st.subheader("Manage Tags")
         tags = get_tags()
@@ -254,12 +250,10 @@ def user_panel():
     u_data = st.session_state.u_data
     exp = datetime.strptime(u_data['expiry_date'], '%Y-%m-%d')
     days = (exp - datetime.now()).days + 1
-    
     st.sidebar.title(f"👋 {st.session_state.user}")
     st.sidebar.info(f"🆔 CID-{1000 + u_data.get('cid_id', 0)}")
-    
     if u_data.get('status') == 'inactive' or days <= 0:
-        if u_data.get('status') == 'inactive': st.sidebar.error("❌ Account Deactivated")
+        if u_data.get('status') == 'inactive': st.sidebar.error("❌ Deactivated")
         else: st.sidebar.error("🚫 Plan Expired")
         if st.sidebar.button("💳 Recharge Now", use_container_width=True): st.session_state.page = "recharge"; st.rerun()
         if st.sidebar.button("📞 Contact Us", use_container_width=True): st.session_state.page = "contact"; st.rerun()
@@ -267,15 +261,12 @@ def user_panel():
         if st.session_state.page == "recharge": recharge_page()
         else: contact_us_page(reason="deactivated")
         return
-
     st.sidebar.success(f"📅 {days} Days Left")
     if st.sidebar.button("💳 Recharge", use_container_width=True): st.session_state.page = "recharge"; st.rerun()
     if st.sidebar.button("📞 Contact Us", use_container_width=True): st.session_state.page = "contact"; st.rerun()
     if st.sidebar.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
-
     if st.session_state.page == "recharge": recharge_page(); return
     if st.session_state.page == "contact": contact_us_page(); return
-
     v = st.text_input("Vehicle Number").upper()
     im = st.text_input("IMEI Number", value=get_vehicle_data(v) if v else "", max_chars=15)
     st.divider()
@@ -293,7 +284,6 @@ def user_panel():
                 th.start(); th.join()
             status_area.table(pd.DataFrame(res)); time.sleep(1.0)
 
-# --- NAVIGATION ---
 if not st.session_state.logged_in: login_page()
 elif st.session_state.role == 'admin': admin_panel()
 else: user_panel()
