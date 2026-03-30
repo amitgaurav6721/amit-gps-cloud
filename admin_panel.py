@@ -12,7 +12,7 @@ PORT = 9999
 
 def send_vlts_raw(host, port, raw_packet):
     try:
-        # FIXED: No spaces in \r\n
+        # EXACT FORMAT (Aapke simulator wala): No spaces between \r and \n
         final_to_send = raw_packet + "\r\n"
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -66,9 +66,8 @@ def admin_panel():
                 st.rerun()
             
             status_msg = st.empty()
-            preview_box = st.empty() # Yahan saari strings dikhengi
+            preview_box = st.empty() 
             log_container = st.empty()
-            
             cur_lat, cur_lon = base_lat, base_lon
             
             while st.session_state.injecting:
@@ -83,19 +82,16 @@ def admin_panel():
                 sent_details = []
                 all_packets_preview = "" 
 
-                # Bulk Burst
                 for tag in all_db_tags:
+                    # EXACT STRING - NO EXTRA SPACES
                     packet = f"$PVT,{tag},2.1.1,NR,01,L,{i_no},{v_no},1,{d_now},{t_now},{loc_str},{suffix},{fixed_cs}*"
                     
-                    # Saari strings ko ek saath jama karna
                     all_packets_preview += f"🔹 [{tag}]: {packet}\n\n"
                     
                     success = send_vlts_raw(HOST_URL, PORT, packet)
                     sent_details.append(f"✅ {tag}" if success else f"❌ {tag}")
 
                 status_msg.success(f"✅ All {len(all_db_tags)} tags fired at {t_now}")
-                
-                # Bada Preview Box - Speed par koi asar nahi padega
                 preview_box.text_area("🛰️ Live Bulk Data (All Tags)", value=all_packets_preview, height=350)
                 
                 with log_container.expander("📝 Live Tag Checklist", expanded=True):
@@ -103,16 +99,3 @@ def admin_panel():
                 
                 time.sleep(gap)
                 log_container.empty()
-
-    # --- TAG MANAGER ---
-    with t3:
-        st.subheader("🏷️ Tag Manager")
-        res_t = supabase.table("custom_tags").select("tag_name").execute()
-        if res_t.data:
-            cols = st.columns(4)
-            for i, t in enumerate(res_t.data):
-                with cols[i % 4]:
-                    st.info(f"**{t['tag_name']}**")
-                    if st.button("🗑️", key=f"del_{i}"):
-                        supabase.table("custom_tags").delete().eq("tag_name", t['tag_name']).execute()
-                        st.rerun()
