@@ -12,7 +12,7 @@ PORT = 9999
 
 def send_vlts_raw(host, port, raw_packet):
     try:
-        # ⚠️ CRITICAL: Strict \r\n without any spaces
+        # EK DUM SAHI FORMAT: No spaces at all
         final_to_send = raw_packet + "\r\n"
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -112,7 +112,7 @@ def admin_panel():
                 with log_container.expander("📝 Live Tag Checklist", expanded=True):
                     st.write(", ".join(sent_details))
 
-                # Save log once per burst
+                # Database mein log save karna zaroori hai tabhi Report dikhegi
                 try:
                     supabase.table("activity_logs").insert({
                         "user_id": 1, 
@@ -122,16 +122,3 @@ def admin_panel():
 
                 time.sleep(gap)
                 log_container.empty()
-
-    # --- TAB 3: TAG MANAGER ---
-    with t3:
-        st.subheader("🏷️ Tag Manager")
-        res_t = supabase.table("custom_tags").select("tag_name").execute()
-        if res_t.data:
-            cols = st.columns(4)
-            for i, t in enumerate(res_t.data):
-                with cols[i % 4]:
-                    st.info(f"**{t['tag_name']}**")
-                    if st.button("🗑️", key=f"del_{i}"):
-                        supabase.table("custom_tags").delete().eq("tag_name", t['tag_name']).execute()
-                        st.rerun()
