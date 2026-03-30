@@ -42,14 +42,12 @@ def get_plans():
     return res.data
 
 def get_tags():
-    # Force add your specific list
     required_tags = [
         "RA18", "WTEX", "MARK", "ASPL", "LOCT14A", "ACT1", "AIS140", "VLTD", "VLT", "GPS", 
         "AMAZON", "BBOX77", "EGAS", "MENT", "MIJO", "EMR", "HB", "HA", "RT", "OS", "IDL", "PWR"
     ]
     res = supabase.table("custom_tags").select("tag_name").execute()
     existing = [item['tag_name'] for item in res.data]
-    
     missing = [t for t in required_tags if t not in existing]
     if missing:
         for t in missing:
@@ -138,7 +136,7 @@ def admin_panel():
     
     with menu[0]:
         st.subheader("🔍 Search & Control Users")
-        search_q = st.text_input("Search User by Name")
+        search_q = st.text_input("Search User by Name (Press Enter)")
         if search_q:
             u_search = supabase.table("user_profiles").select("*").ilike("username", f"%{search_q}%").execute()
             if u_search.data:
@@ -147,6 +145,11 @@ def admin_panel():
                     d_left = (exp_date - datetime.now()).days + 1
                     status = usr.get('status', 'active')
                     with st.expander(f"👤 {usr['username']} (CID-{1000 + usr['cid_id']})"):
+                        # --- YAHAN UPDATED DETAILS DIKHENGI ---
+                        col_info1, col_info2 = st.columns(2)
+                        col_info1.info(f"📅 **Validity Left:** {d_left} Days")
+                        col_info2.info(f"📆 **Expiry Date:** {usr['expiry_date']}")
+                        
                         c1, c2, c3 = st.columns(3)
                         if c1.button("➕ 1 Month", key=f"e1_{usr['username']}"):
                             new_exp = max(exp_date, datetime.now()) + timedelta(days=28)
@@ -158,8 +161,9 @@ def admin_panel():
                             st.rerun()
                         new_stat = 'inactive' if status == 'active' else 'active'
                         if c3.button(f"Mark {new_stat.upper()}", key=f"s_{usr['username']}"):
-                            supabase.table("user_profiles").update({"status": new_stat}).eq("username", usr['username']).execute()
+                            supabase.table("user_profiles").update({"status": new_status}).eq("username", usr['username']).execute()
                             st.rerun()
+            else: st.warning("No user found.")
         
         st.divider()
         st.subheader("➕ Create New User")
@@ -168,9 +172,20 @@ def admin_panel():
             new_p = st.text_input("New Password")
             lat = st.number_input("Lat", value=25.5941, format="%.7f")
             lon = st.number_input("Lon", value=85.1376, format="%.7f")
+            # --- YAHAN PLAN OPTION ADD KIYA HAI ---
+            plan_selection = st.selectbox("Assign Plan", ["1 Month (28 Days)", "3 Months (84 Days)", "Custom Date"])
+            custom_exp = st.date_input("Select Date (if Custom)", value=datetime.now() + timedelta(days=30))
+            
             if st.form_submit_button("Create User"):
-                supabase.table("user_profiles").insert({"username": new_u, "password": new_p, "latitude": lat, "longitude": lon, "expiry_date": (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d"), "status": "active"}).execute()
-                st.success("User Created!")
+                if plan_selection == "1 Month (28 Days)": exp = datetime.now() + timedelta(days=28)
+                elif plan_selection == "3 Months (84 Days)": exp = datetime.now() + timedelta(days=84)
+                else: exp = datetime.combine(custom_exp, datetime.min.time())
+                
+                supabase.table("user_profiles").insert({
+                    "username": new_u, "password": new_p, "latitude": lat, 
+                    "longitude": lon, "expiry_date": exp.strftime("%Y-%m-%d"), "status": "active"
+                }).execute()
+                st.success(f"User Created! Expiry: {exp.strftime('%Y-%m-%d')}")
 
     with menu[1]:
         st.subheader("🚀 Master Injector (Full Control)")
@@ -193,18 +208,15 @@ def admin_panel():
                 st.rerun()
             
             adm_status = st.empty()
-            adm_string = st.empty() # Yahan Raw String dikhegi
+            adm_string = st.empty()
             
             while st.session_state.admin_running:
                 res = []
                 threads = []
                 tag_list = get_tags()
                 dt = datetime.now().strftime("%d%m%Y,%H%M%S")
-                
-                # Preview of the very first string being sent
                 sample_p = f"$PVT,{tag_list[0]},2.1.1,NR,01,L,{adm_imei},{adm_v_no},1,{dt},{adm_lat:.7f},N,{adm_lon:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
                 adm_string.info(f"**Final String Sent:** `{sample_p}`")
-
                 for t in tag_list:
                     p = f"$PVT,{t},2.1.1,NR,01,L,{adm_imei},{adm_v_no},1,{dt},{adm_lat:.7f},N,{adm_lon:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
                     th = threading.Thread(target=send_packet_thread, args=("vlts.bihar.gov.in", 9999, p, res, True))
