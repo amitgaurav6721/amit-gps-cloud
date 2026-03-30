@@ -1,22 +1,19 @@
 import streamlit as st
 from supabase import create_client, Client
 
-# --- DATABASE CREDENTIALS ---
-URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
-KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
+def get_supabase():
+    URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
+    KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
+    return create_client(URL, KEY)
 
-# Create Client (Global variable)
-supabase: Client = create_client(URL, KEY)
+# Global client for other files
+supabase = get_supabase()
 
 def get_tags():
     try:
-        # Direct fetch from table 'custom_tags'
         res = supabase.table("custom_tags").select("tag_name").execute()
-        if res.data:
-            return [item['tag_name'] for item in res.data]
-        return []
-    except Exception as e:
-        st.error(f"DB Error: {e}")
+        return [item['tag_name'] for item in res.data] if res.data else []
+    except:
         return []
 
 def check_login(user, pwd):
