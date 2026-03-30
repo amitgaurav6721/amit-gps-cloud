@@ -484,7 +484,7 @@ def user_panel():
     # Live Map Section (User Location from Profile)
     st.markdown("### 🗺️ Live Vehicle Tracking View")
     location_df = pd.DataFrame({'lat': [u_data['latitude']], 'lon': [u_data['longitude']]})
-    st.map(location_df)
+    st.map(location_df, height=300)
     
     st.divider()
     
