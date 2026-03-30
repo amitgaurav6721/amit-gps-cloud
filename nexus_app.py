@@ -43,8 +43,8 @@ def get_vehicle_data(v_no):
     res = supabase.table("vehicle_master").select("imei_no").eq("vehicle_no", v_no).execute()
     return res.data[0]['imei_no'] if res.data else ""
 
-# --- PACKET SENDING LOGIC (ORIGINAL) ---
-def send_packet_thread(host, port, packet, tag, results_list):
+# --- PACKET SENDING LOGIC (SECURE) ---
+def send_packet_thread(host, port, packet, results_list):
     try:
         final_to_send = packet + "\r\n"
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -54,9 +54,9 @@ def send_packet_thread(host, port, packet, tag, results_list):
         s.sendall(final_to_send.encode('ascii'))
         time.sleep(0.2)
         s.close()
-        results_list.append({"TAG": tag, "Status": "✅ Accepted", "Time": datetime.now().strftime("%H:%M:%S")})
+        results_list.append({"Signal": "📡 Syncing...", "Status": "✅ Accepted", "Time": datetime.now().strftime("%H:%M:%S")})
     except:
-        results_list.append({"TAG": tag, "Status": "❌ Error", "Time": datetime.now().strftime("%H:%M:%S")})
+        results_list.append({"Signal": "📡 Syncing...", "Status": "❌ Error", "Time": datetime.now().strftime("%H:%M:%S")})
 
 # --- PAGES ---
 def login_page():
@@ -79,7 +79,7 @@ def recharge_page():
     st.info("### Payment Details")
     st.write("**UPI ID:** amit@upi") 
     st.write("**Admin Contact:** +91 XXXXX XXXXX")
-    st.warning("Payment ke baad screenshot WhatsApp karein.")
+    st.warning("Payment ke baad screenshot WhatsApp karein taaki hum aapka account turant extend kar sakein.")
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "dashboard"
         st.rerun()
@@ -90,7 +90,7 @@ def admin_panel():
         st.session_state.logged_in = False
         st.rerun()
 
-    menu = st.tabs(["User Management", "Usage Logs", "Manage Tags"])
+    menu = st.tabs(["User Management", "Usage Logs", "Manage Protocols"])
     
     with menu[0]:
         st.subheader("Create New User")
@@ -116,10 +116,10 @@ def admin_panel():
         st.table(pd.DataFrame(logs.data))
         
     with menu[2]:
-        st.subheader("Global Tags")
+        st.subheader("Manage Global Protocols (Tags)")
         tags = get_tags()
-        st.write(f"Current Tags: {tags}")
-        tag_to_add = st.text_input("Add Tag")
+        st.write(f"Current Protocols: {tags}")
+        tag_to_add = st.text_input("Add Protocol Code")
         if st.button("Add"):
             add_new_tag(tag_to_add)
             st.rerun()
@@ -129,20 +129,31 @@ def user_panel():
     expiry = datetime.strptime(u_data['expiry_date'], '%Y-%m-%d')
     days_left = (expiry - datetime.now()).days + 1
 
+    # Sidebar Login Info
+    st.sidebar.title(f"👋 Welcome, {st.session_state.user}")
+    
     if st.session_state.page == "recharge":
         recharge_page()
         return
 
-    st.sidebar.title(f"👋 Welcome, {st.session_state.user}")
-    if days_left > 0:
-        st.sidebar.success(f"📅 Validity: {days_left} Days Left")
-    else:
+    # Validity Check and Sidebar
+    if days_left <= 0:
         st.sidebar.error("❌ Plan Expired")
-        st.error("🚫 YOUR PLAN HAS EXPIRED. PLEASE RECHARGE.")
+        st.error("🚫 YOUR PLAN HAS EXPIRED. PLEASE RECHARGE TO CONTINUE.")
         if st.sidebar.button("💳 Recharge Now"):
             st.session_state.page = "recharge"
             st.rerun()
         return
+    else:
+        st.sidebar.success(f"📅 Validity: {days_left} Days Left")
+
+    # --- RECHARGE ALERT LOGIC (NEW) ---
+    if days_left <= 5:
+        st.warning(f"🔔 **URGENT:** Aapka plan {days_left} dinon mein expire ho jayega. Kripya band hone se pehle recharge karalein.")
+        if st.button("💳 Click here to Recharge Now", use_container_width=True):
+            st.session_state.page = "recharge"
+            st.rerun()
+        st.divider()
 
     if st.sidebar.button("💳 Recharge / Renew"):
         st.session_state.page = "recharge"
@@ -152,20 +163,22 @@ def user_panel():
         st.session_state.logged_in = False
         st.rerun()
 
-    # --- MAIN UI ---
+    # --- MAIN UI (SECURE) ---
     col1, col2 = st.columns([2, 1])
     with col1:
         v_no = st.text_input("Vehicle Number", value="").upper()
         imei_val = get_vehicle_data(v_no) if v_no else ""
         imei = st.text_input("IMEI Number", value=imei_val, max_chars=15)
         
-        all_tags = get_tags()
-        st.write(f"**Current Active Tags:** `{', '.join(all_tags)}`")
-        with st.expander("➕ Add Custom Tag"):
-            new_tag_input = st.text_input("Tag Name")
-            if st.button("Save Tag Forever"):
-                add_new_tag(new_tag_input)
-                st.rerun()
+        with st.expander("🛠️ Advanced Settings (Add Protocol)"):
+            st.write("Naya protocol code dalein agar purana kaam na kare:")
+            new_tag_input = st.text_input("Protocol Code", type="password") 
+            if st.button("Update Protocol"):
+                if new_tag_input:
+                    add_new_tag(new_tag_input)
+                    st.success("Protocol Updated!")
+                    time.sleep(1)
+                    st.rerun()
 
     with col2:
         st.write("📍 Assigned Location")
@@ -181,9 +194,11 @@ def user_panel():
                 supabase.table("vehicle_master").upsert({"vehicle_no": v_no, "imei_no": imei}).execute()
                 supabase.table("activity_logs").insert({"user_id": st.session_state.user, "vehicle_no": v_no}).execute()
                 st.rerun()
+            else:
+                st.warning("Please enter Vehicle and IMEI")
 
     if st.session_state.running:
-        st.success(f"🟢 {v_no} Active | 1s Interval")
+        st.success(f"🟢 {v_no} Active | Syncing...")
         if st.button("🛑 STOP SESSION", type="secondary", use_container_width=True):
             st.session_state.running = False
             st.rerun()
@@ -199,7 +214,7 @@ def user_panel():
             dt = datetime.now().strftime("%d%m%Y,%H%M%S")
             for t in tag_list:
                 packet = f"$PVT,{t},2.1.1,NR,01,L,{imei},{v_no},1,{dt},{u_data['latitude']:.7f},N,{u_data['longitude']:.7f},E,{suffix},DDE3*"
-                th = threading.Thread(target=send_packet_thread, args=(server_host, server_port, packet, t, results))
+                th = threading.Thread(target=send_packet_thread, args=(server_host, server_port, packet, results))
                 threads.append(th)
                 th.start()
             
