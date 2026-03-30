@@ -155,24 +155,39 @@ def admin_panel():
     
     with menu[0]:
         st.subheader("🔍 Search & Control")
-        search_q = st.text_input("Search Name")
-        if search_q:
-            u_search = supabase.table("user_profiles").select("*").ilike("username", f"%{search_q}%").execute()
-            for usr in u_search.data:
-                exp_date = datetime.strptime(usr['expiry_date'], '%Y-%m-%d')
-                status = usr.get('status', 'active')
-                with st.expander(f"👤 {usr['username']} (CID-{1000 + usr['cid_id']})"):
-                    st.write(f"Expiry: {usr['expiry_date']} | Status: {status.upper()}")
-                    c1, c2, c3 = st.columns(3)
-                    if c1.button("+28 Days", key=f"e1_{usr['username']}"):
-                        new_exp = max(exp_date, datetime.now()) + timedelta(days=28)
-                        supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d")}).eq("username", usr['username']).execute(); st.rerun()
-                    if c2.button("+84 Days", key=f"e3_{usr['username']}"):
-                        new_exp = max(exp_date, datetime.now()) + timedelta(days=84)
-                        supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d")}).eq("username", usr['username']).execute(); st.rerun()
-                    new_s = 'inactive' if status == 'active' else 'active'
-                    if c3.button(f"Mark {new_s.upper()}", key=f"s_{usr['username']}"):
-                        supabase.table("user_profiles").update({"status": new_s}).eq("username", usr['username']).execute(); st.rerun()
+        search_input = st.text_input("Search by Name or CID (e.g. CID-1001)")
+        
+        if search_input:
+            # Check if searching by CID format
+            if search_input.upper().startswith("CID-"):
+                try:
+                    cid_num = int(search_input.split("-")[1]) - 1000
+                    u_search = supabase.table("user_profiles").select("*").eq("cid_id", cid_num).execute()
+                except:
+                    u_search = supabase.table("user_profiles").select("*").ilike("username", f"%{search_input}%").execute()
+            else:
+                u_search = supabase.table("user_profiles").select("*").ilike("username", f"%{search_input}%").execute()
+
+            if u_search.data:
+                for usr in u_search.data:
+                    exp_date = datetime.strptime(usr['expiry_date'], '%Y-%m-%d')
+                    d_left = (exp_date - datetime.now()).days + 1
+                    status = usr.get('status', 'active')
+                    with st.expander(f"👤 {usr['username']} (CID-{1000 + usr['cid_id']})"):
+                        st.write(f"**Days Left:** {d_left} | **Expiry:** {usr['expiry_date']} | **Status:** {status.upper()}")
+                        c1, c2, c3 = st.columns(3)
+                        if c1.button("+28 Days", key=f"e1_{usr['username']}"):
+                            new_exp = max(exp_date, datetime.now()) + timedelta(days=28)
+                            supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d")}).eq("username", usr['username']).execute(); st.rerun()
+                        if c2.button("+84 Days", key=f"e3_{usr['username']}"):
+                            new_exp = max(exp_date, datetime.now()) + timedelta(days=84)
+                            supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d")}).eq("username", usr['username']).execute(); st.rerun()
+                        new_s = 'inactive' if status == 'active' else 'active'
+                        if c3.button(f"Mark {new_s.upper()}", key=f"s_{usr['username']}"):
+                            supabase.table("user_profiles").update({"status": new_s}).eq("username", usr['username']).execute(); st.rerun()
+            else:
+                st.warning("No user found with this Name or CID.")
+
         st.divider()
         st.subheader("➕ Create New User")
         with st.form("new_user"):
@@ -184,7 +199,7 @@ def admin_panel():
                 supabase.table("user_profiles").insert({"username": nu, "password": np, "latitude": lat, "longitude": lon, "expiry_date": (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d"), "status": "active"}).execute(); st.success("Created!")
 
     with menu[1]:
-        st.subheader("🚀 Master Injector (Raw Preview)")
+        st.subheader("🚀 Master Injector")
         vno = st.text_input("V-No", "BR01P1234").upper()
         imei = st.text_input("IMEI", "865432109876543")
         lat_m = st.number_input("Lat (Master)", 25.5941, format="%.7f")
@@ -278,7 +293,7 @@ def user_panel():
         while st.session_state.running:
             res = []; tags = get_tags(); dt = datetime.now().strftime("%d%m%Y,%H%M%S")
             for t in tags:
-                p = f"$PVT,{t},2.1.1,NR,01,L,{im},{v},1,{dt},{u_data['latitude']:.7f},N,{u_data['longitude']:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
+                p = f"$PVT,{t},2.1.1,NR,01,L, {im},{v},1,{dt},{u_data['latitude']:.7f},N,{u_data['longitude']:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
                 th = threading.Thread(target=send_packet_thread, args=("vlts.bihar.gov.in", 9999, p, res))
                 th.start(); th.join()
             status_area.table(pd.DataFrame(res)); time.sleep(1.0)
