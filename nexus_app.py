@@ -98,9 +98,7 @@ def contact_us_page(reason="general"):
     contact = get_contact_details()
     st.title("📞 Contact Us")
     if reason == "deactivated":
-        st.error("⚠️ Aapka account Deactivated hai. Sampark karein:")
-    else:
-        st.info("Sahayata ke liye humein sampark karein:")
+        st.error("⚠️ Aapka account Deactivated hai. Dubara active karne ke liye niche diye gaye Recharge option ka use karein ya humein sampark karein.")
     
     st.divider()
     c1, c2 = st.columns(2)
@@ -120,8 +118,6 @@ def contact_us_page(reason="general"):
 
     if st.session_state.u_data and st.session_state.u_data.get('status') == 'active':
         if st.button("⬅️ Back"): st.session_state.page = "dashboard"; st.rerun()
-    else:
-        if st.sidebar.button("Logout"): st.session_state.logged_in = False; st.rerun()
 
 def recharge_page():
     contact = get_contact_details()
@@ -143,7 +139,7 @@ def recharge_page():
         if st.button("Submit Request", use_container_width=True):
             try:
                 supabase.table("recharge_requests").insert({"username": st.session_state.user, "utr_number": utr, "amount": amt}).execute()
-                st.success("✅ Request Sent!"); time.sleep(1); st.session_state.page = "dashboard"; st.rerun()
+                st.success("✅ Request Sent! Admin jald hi approve kar denge."); time.sleep(2); st.session_state.page = "dashboard"; st.rerun()
             except: st.error("UTR used.")
     if st.button("⬅️ Back"): st.session_state.page = "dashboard"; st.rerun()
 
@@ -155,11 +151,14 @@ def admin_panel():
     
     with menu[0]:
         st.subheader("🔍 Search & Control")
-        search_input = st.text_input("Search by Name or CID (e.g. CID-1001)")
+        search_input = st.text_input("Search by Name, CID (1001), or CID-1001")
         
         if search_input:
-            # Check if searching by CID format
-            if search_input.upper().startswith("CID-"):
+            search_input = search_input.strip()
+            if search_input.isdigit():
+                cid_num = int(search_input) - 1000
+                u_search = supabase.table("user_profiles").select("*").eq("cid_id", cid_num).execute()
+            elif search_input.upper().startswith("CID-"):
                 try:
                     cid_num = int(search_input.split("-")[1]) - 1000
                     u_search = supabase.table("user_profiles").select("*").eq("cid_id", cid_num).execute()
@@ -186,7 +185,7 @@ def admin_panel():
                         if c3.button(f"Mark {new_s.upper()}", key=f"s_{usr['username']}"):
                             supabase.table("user_profiles").update({"status": new_s}).eq("username", usr['username']).execute(); st.rerun()
             else:
-                st.warning("No user found with this Name or CID.")
+                st.warning("No user found.")
 
         st.divider()
         st.subheader("➕ Create New User")
@@ -231,9 +230,10 @@ def admin_panel():
                     user_res = supabase.table("user_profiles").select("expiry_date").eq("username", r['username']).execute()
                     current_exp = datetime.strptime(user_res.data[0]['expiry_date'], '%Y-%m-%d')
                     new_exp = max(current_exp, datetime.now()) + timedelta(days=days_to_add)
-                    supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d")}).eq("username", r['username']).execute()
+                    # Mark active when approved
+                    supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d"), "status": "active"}).eq("username", r['username']).execute()
                     supabase.table("recharge_requests").update({"status": "approved"}).eq("id", r['id']).execute()
-                    st.success("Approved!"); st.rerun()
+                    st.success("Approved & User Activated!"); st.rerun()
         else: st.write("No requests.")
 
     with menu[3]:
@@ -256,32 +256,49 @@ def admin_panel():
             c1.code(t)
             if c2.button("❌", key=f"del_{t}"): delete_tag(t); st.rerun()
         ta = st.text_input("Add New Tag")
-        if st.button("Add"): add_new_tag(ta); st.rerun()
+        if st.button("Add"): 
+            if ta: supabase.table("custom_tags").upsert({"tag_name": ta.upper().strip()}).execute(); st.rerun()
 
 def user_panel():
     u_data = st.session_state.u_data
-    if u_data.get('status') == 'inactive': contact_us_page(reason="deactivated"); return
-    if st.session_state.page == "recharge": recharge_page(); return
-    if st.session_state.page == "contact": contact_us_page(); return
-
     exp = datetime.strptime(u_data['expiry_date'], '%Y-%m-%d')
     days = (exp - datetime.now()).days + 1
+    
     st.sidebar.title(f"👋 {st.session_state.user}")
     st.sidebar.info(f"🆔 CID-{1000 + u_data.get('cid_id', 0)}")
-    if days <= 0:
-        st.error("🚫 EXPIRED."); 
-        if st.sidebar.button("💳 Recharge"): st.session_state.page = "recharge"; st.rerun()
+    
+    # Check Status for Navigation
+    if u_data.get('status') == 'inactive' or days <= 0:
+        if u_data.get('status') == 'inactive':
+            st.sidebar.error("❌ Account Deactivated")
+        else:
+            st.sidebar.error("🚫 Plan Expired")
+        
+        if st.sidebar.button("💳 Recharge Now", use_container_width=True): 
+            st.session_state.page = "recharge"; st.rerun()
+        if st.sidebar.button("📞 Contact Us", use_container_width=True): 
+            st.session_state.page = "contact"; st.rerun()
+        if st.sidebar.button("Logout", use_container_width=True): 
+            st.session_state.logged_in = False; st.rerun()
+
+        # Route Inactive Users to specific pages
+        if st.session_state.page == "recharge": recharge_page()
+        else: contact_us_page(reason="deactivated")
         return
+
+    # Active User Sidebar
     st.sidebar.success(f"📅 {days} Days Left")
+    if st.sidebar.button("💳 Recharge", use_container_width=True): st.session_state.page = "recharge"; st.rerun()
     if st.sidebar.button("📞 Contact Us", use_container_width=True): st.session_state.page = "contact"; st.rerun()
     if st.sidebar.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
 
+    # Route Active Users
+    if st.session_state.page == "recharge": recharge_page(); return
+    if st.session_state.page == "contact": contact_us_page(); return
+
+    # Main Dashboard Logic
     v = st.text_input("Vehicle Number").upper()
     im = st.text_input("IMEI Number", value=get_vehicle_data(v) if v else "", max_chars=15)
-    with st.expander("🛠️ Settings"):
-        st.write("Agar tool kaam na kare toh please tag add karein...")
-        t_in = st.text_input("Tag Code", type="password")
-        if st.button("Update Tag"): add_new_tag(t_in); st.success("Updated!")
     
     st.divider()
     if not st.session_state.running:
@@ -293,7 +310,7 @@ def user_panel():
         while st.session_state.running:
             res = []; tags = get_tags(); dt = datetime.now().strftime("%d%m%Y,%H%M%S")
             for t in tags:
-                p = f"$PVT,{t},2.1.1,NR,01,L, {im},{v},1,{dt},{u_data['latitude']:.7f},N,{u_data['longitude']:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
+                p = f"$PVT,{t},2.1.1,NR,01,L,{im},{v},1,{dt},{u_data['latitude']:.7f},N,{u_data['longitude']:.7f},E,0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041,DDE3*"
                 th = threading.Thread(target=send_packet_thread, args=("vlts.bihar.gov.in", 9999, p, res))
                 th.start(); th.join()
             status_area.table(pd.DataFrame(res)); time.sleep(1.0)
