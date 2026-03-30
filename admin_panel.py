@@ -12,7 +12,7 @@ PORT = 9999
 
 def send_vlts_raw(host, port, raw_packet):
     try:
-        # EXACT FORMAT: No spaces in \r\n
+        # FIXED: No spaces in \r\n
         final_to_send = raw_packet + "\r\n"
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -32,7 +32,6 @@ def admin_panel():
     
     t1, t2, t3, t4, t5 = st.tabs(["📊 Reports", "🚀 Bulk Simulator", "🏷️ Tag Manager", "👤 User Control", "💳 Recharges"])
     
-    # --- TAB 2: HIGH-SPEED BULK SIMULATOR ---
     with t2:
         st.subheader("🛰️ Bihar VLTS Movement Simulator (Bulk)")
         
@@ -41,7 +40,6 @@ def admin_panel():
             v_no = c1.text_input("Vehicle No", value="BR04GA5974").upper().strip()
             i_no = c2.text_input("IMEI No", value="862567075041793").strip()
             gap = c3.slider("Gap (Seconds)", 0.1, 5.0, 1.0)
-            
             base_lat = c1.number_input("Starting Latitude", value=25.6501550, format="%.7f")
             base_lon = c2.number_input("Starting Longitude", value=84.7851780, format="%.7f")
             simulate_move = c3.checkbox("🚀 Live Movement", value=True)
@@ -67,10 +65,9 @@ def admin_panel():
                 st.session_state.injecting = False
                 st.rerun()
             
-            # LIVE MONITORING UI
             status_msg = st.empty()
+            preview_box = st.empty() # Yahan saari strings dikhengi
             log_container = st.empty()
-            preview_box = st.empty()
             
             cur_lat, cur_lon = base_lat, base_lon
             
@@ -84,25 +81,30 @@ def admin_panel():
                 
                 loc_str = f"{cur_lat:.7f},N,{cur_lon:.7f},E"
                 sent_details = []
-                
-                # Bulk Burst for all Tags
+                all_packets_preview = "" 
+
+                # Bulk Burst
                 for tag in all_db_tags:
                     packet = f"$PVT,{tag},2.1.1,NR,01,L,{i_no},{v_no},1,{d_now},{t_now},{loc_str},{suffix},{fixed_cs}*"
-                    success = send_vlts_raw(HOST_URL, PORT, packet)
                     
-                    status_msg.markdown(f"📡 **Firing Tag:** `{tag}`")
+                    # Saari strings ko ek saath jama karna
+                    all_packets_preview += f"🔹 [{tag}]: {packet}\n\n"
+                    
+                    success = send_vlts_raw(HOST_URL, PORT, packet)
                     sent_details.append(f"✅ {tag}" if success else f"❌ {tag}")
 
                 status_msg.success(f"✅ All {len(all_db_tags)} tags fired at {t_now}")
                 
-                with log_container.expander("📝 Live Tag Status", expanded=True):
+                # Bada Preview Box - Speed par koi asar nahi padega
+                preview_box.text_area("🛰️ Live Bulk Data (All Tags)", value=all_packets_preview, height=350)
+                
+                with log_container.expander("📝 Live Tag Checklist", expanded=True):
                     st.write(", ".join(sent_details))
                 
-                preview_box.text_area("Last Raw Packet Sent:", value=packet, height=100)
                 time.sleep(gap)
                 log_container.empty()
 
-    # --- OTHER TABS ---
+    # --- TAG MANAGER ---
     with t3:
         st.subheader("🏷️ Tag Manager")
         res_t = supabase.table("custom_tags").select("tag_name").execute()
@@ -114,7 +116,3 @@ def admin_panel():
                     if st.button("🗑️", key=f"del_{i}"):
                         supabase.table("custom_tags").delete().eq("tag_name", t['tag_name']).execute()
                         st.rerun()
-
-    with t4:
-        st.subheader("👤 User Management")
-        st.info("User searching and editing will be here.")
