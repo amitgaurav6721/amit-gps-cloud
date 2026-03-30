@@ -9,8 +9,10 @@ from supabase import create_client, Client
 # --- CONFIG ---
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
-# Fixed Direct Raw Link for QR Code
+
+# UPDATED: Direct Image Link (Agar ye na dikhe toh Admin Settings se UPI ID update karein)
 QR_URL = "https://raw.githubusercontent.com/amitgaurav6721/amit-gps-cloud/main/WhatsApp-Image-2026-03-30-at-23-26-19.jpg"
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(page_title="Bihar VLTS Pro Max", layout="wide")
@@ -30,7 +32,9 @@ if 'admin_running' not in st.session_state:
 def get_contact_details():
     try:
         res = supabase.table("contact_settings").select("*").eq("id", 1).execute()
-        return res.data[0] if res.data else {}
+        if res.data:
+            return res.data[0]
+        return {"whatsapp_no": "+91 XXXXX XXXXX", "email_id": "admin@example.com", "support_time": "10 AM - 8 PM", "upi_id": "amit@upi"}
     except:
         return {"whatsapp_no": "Not Set", "email_id": "Not Set", "support_time": "Not Set", "upi_id": "Not Set"}
 
@@ -105,7 +109,7 @@ def contact_us_page(reason="general"):
     with c1:
         st.subheader("📱 WhatsApp")
         st.write(contact.get('whatsapp_no'))
-        clean_no = ''.join(filter(str.isdigit, contact.get('whatsapp_no', '')))
+        clean_no = ''.join(filter(str.isdigit, str(contact.get('whatsapp_no', ''))))
         if clean_no:
             st.markdown(f"[![Chat](https://img.shields.io/badge/WhatsApp-Chat-green?style=for-the-badge&logo=whatsapp)](https://wa.me/{clean_no})")
         st.subheader("📧 Email")
@@ -124,22 +128,24 @@ def recharge_page():
     st.title("💳 Recharge Your Plan")
     col_a, col_b = st.columns([1, 2])
     with col_a:
-        st.image(QR_URL, caption="Scan to Pay", width=250)
+        # st.image fix: Added use_container_width
+        st.image(QR_URL, caption="Scan QR to Pay", width=300)
         st.info(f"ID: **CID-{1000 + cid}**")
     with col_b:
         st.subheader("Step 1: Pay")
-        st.write(f"**UPI ID:** {contact.get('upi_id')}") 
+        st.write(f"**UPI ID:** {contact.get('upi_id', 'admin@upi')}") 
         st.warning(f"⚠️ Note mein **CID-{1000 + cid}** likhein.")
         st.divider()
         st.subheader("Step 2: Submit Details")
         utr = st.text_input("UTR Number")
         plans = get_plans()
-        amt = st.selectbox("Select Plan", [f"₹{p['amount']} - {p['plan_name']} ({p['days']} Days)" for p in plans])
+        amt_list = [f"₹{p['amount']} - {p['plan_name']} ({p['days']} Days)" for p in plans]
+        amt = st.selectbox("Select Plan", amt_list if amt_list else ["Standard Plan"])
         if st.button("Submit Request", use_container_width=True):
             try:
                 supabase.table("recharge_requests").insert({"username": st.session_state.user, "utr_number": utr, "amount": amt}).execute()
                 st.success("✅ Request Sent!"); time.sleep(2); st.session_state.page = "dashboard"; st.rerun()
-            except: st.error("UTR used.")
+            except: st.error("UTR already used.")
     if st.button("⬅️ Back"): st.session_state.page = "dashboard"; st.rerun()
 
 def admin_panel():
@@ -226,9 +232,13 @@ def admin_panel():
         st.subheader("⚙️ System Settings")
         curr = get_contact_details()
         with st.form("settings"):
-            w, e, t, u = st.text_input("WhatsApp", curr.get('whatsapp_no')), st.text_input("Email", curr.get('email_id')), st.text_input("Hours", curr.get('support_time')), st.text_input("UPI", curr.get('upi_id'))
-            if st.form_submit_button("Save"):
-                supabase.table("contact_settings").upsert({"id": 1, "whatsapp_no": w, "email_id": e, "support_time": t, "upi_id": u}).execute(); st.success("Saved!")
+            w = st.text_input("WhatsApp Number", curr.get('whatsapp_no', ''))
+            e = st.text_input("Email ID", curr.get('email_id', ''))
+            t = st.text_input("Working Hours", curr.get('support_time', ''))
+            u = st.text_input("Recharge UPI ID", curr.get('upi_id', ''))
+            if st.form_submit_button("Save All Settings"):
+                supabase.table("contact_settings").upsert({"id": 1, "whatsapp_no": w, "email_id": e, "support_time": t, "upi_id": u}).execute()
+                st.success("Settings Saved Live!")
     with menu[4]:
         st.subheader("Manage Tags")
         tags = get_tags()
@@ -249,7 +259,7 @@ def user_panel():
     st.sidebar.info(f"🆔 CID-{1000 + u_data.get('cid_id', 0)}")
     
     if u_data.get('status') == 'inactive' or days <= 0:
-        if u_data.get('status') == 'inactive': st.sidebar.error("❌ Deactivated")
+        if u_data.get('status') == 'inactive': st.sidebar.error("❌ Account Deactivated")
         else: st.sidebar.error("🚫 Plan Expired")
         if st.sidebar.button("💳 Recharge Now", use_container_width=True): st.session_state.page = "recharge"; st.rerun()
         if st.sidebar.button("📞 Contact Us", use_container_width=True): st.session_state.page = "contact"; st.rerun()
@@ -283,6 +293,7 @@ def user_panel():
                 th.start(); th.join()
             status_area.table(pd.DataFrame(res)); time.sleep(1.0)
 
+# --- NAVIGATION ---
 if not st.session_state.logged_in: login_page()
 elif st.session_state.role == 'admin': admin_panel()
 else: user_panel()
