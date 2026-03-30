@@ -217,7 +217,7 @@ def recharge_page():
     
     col_img, col_form = st.columns([1, 2])
     with col_img:
-        st.image(QR_URL, caption="Scan QR via Any UPI App", width=260)
+        st.image(QR_URL, caption="Scan QR via Any UPI App", width=200)
         st.info(f"Verify ID Before Payment: **CID-{1000 + cid}**")
         st.subheader("📜 Recent History")
         history = supabase.table("recharge_requests").select("*").eq("username", user_id).order("id", desc=True).limit(5).execute()
