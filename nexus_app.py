@@ -7,27 +7,23 @@ from datetime import datetime, timedelta
 from supabase import create_client, Client
 
 # ==========================================================
-# --- 1. GLOBAL APP CONFIGURATION & SUPABASE CONNECTION ---
+# --- 1. GLOBAL APP CONFIGURATION & DATABASE SETUP ---
 # ==========================================================
 
-# Database credentials for Supabase
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
-
-# Payment QR Code Image URL (Permanent Hosting)
 QR_URL = "https://i.ibb.co/99P60H1z/Whats-App-Image-2026-03-30-at-23-26-19.jpg"
 
-# Initialize Supabase Client
+# Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Page configuration for Streamlit UI
 st.set_page_config(
     page_title="Bihar VLTS Pro Max",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- INITIALIZE SESSION STATES FOR NAVIGATION & DATA ---
+# --- INITIALIZE SESSION STATES ---
 if 'logged_in' not in st.session_state:
     st.session_state.update({
         'logged_in': False,
@@ -44,21 +40,26 @@ if 'admin_running' not in st.session_state:
     st.session_state.admin_running = False
 
 # ==========================================================
-# --- 2. CORE DATABASE OPERATIONS (CRUD) ---
+# --- 2. CORE DATABASE FUNCTIONS ---
 # ==========================================================
 
 def get_contact_details():
-    """Fetches support phone, email, and UPI ID from contact_settings table"""
+    """Fetch global support settings from DB"""
     try:
         res = supabase.table("contact_settings").select("*").eq("id", 1).execute()
         if res.data:
             return res.data[0]
-        return {"whatsapp_no": "Not Set", "email_id": "Not Set", "upi_id": "admin@upi"}
-    except Exception as e:
-        return {"whatsapp_no": "Error", "email_id": "Error", "upi_id": "admin@upi"}
+        return {
+            "whatsapp_no": "Not Set",
+            "email_id": "Not Set",
+            "support_time": "10 AM - 6 PM",
+            "upi_id": "admin@upi"
+        }
+    except Exception:
+        return {"whatsapp_no": "Error", "email_id": "Error", "support_time": "Not Set", "upi_id": "admin@upi"}
 
 def check_login(user, pwd):
-    """Authenticates user. Handles both hardcoded Admin and DB Users"""
+    """Authenticate Admin or User"""
     if user == "admin" and pwd == "admin77": 
         return {"username": "admin", "role": "admin"}
     try:
@@ -70,35 +71,30 @@ def check_login(user, pwd):
         return None
 
 def get_tags():
-    """Returns all tags. If DB is empty, uses a default list of 22 tags"""
-    default_tags = [
-        "RA18", "WTEX", "MARK", "ASPL", "LOCT14A", "ACT1", "AIS140", 
-        "VLTD", "VLT", "GPS", "AMAZON", "BBOX77", "EGAS", "MENT", 
-        "MIJO", "EMR", "HB", "HA", "RT", "OS", "IDL", "PWR"
-    ]
+    """Fetch all custom and default tags"""
+    default_req = ["RA18", "WTEX", "MARK", "ASPL", "LOCT14A", "ACT1", "AIS140", "VLTD", "VLT", "GPS", "AMAZON", "BBOX77", "EGAS", "MENT", "MIJO", "EMR", "HB", "HA", "RT", "OS", "IDL", "PWR"]
     try:
         res = supabase.table("custom_tags").select("tag_name").execute()
-        if res.data and len(res.data) > 0:
+        if res.data:
             return [item['tag_name'] for item in res.data]
-        return default_tags
+        return default_req
     except Exception:
-        return default_tags
+        return default_req
 
 def log_activity(username, vehicle_no, action):
-    """Saves every START/STOP action to activity_logs table for Admin reporting"""
+    """Saves every action to activity_logs for Admin Reports"""
     try:
-        payload = {
+        supabase.table("activity_logs").insert({
             "username": username,
             "vehicle_no": str(vehicle_no).upper(),
             "action": action,
             "timestamp": datetime.now().isoformat()
-        }
-        supabase.table("activity_logs").insert(payload).execute()
-    except Exception as e:
-        st.sidebar.error(f"Log Error: {e}")
+        }).execute()
+    except Exception:
+        pass
 
 def get_vehicle_data(v_no):
-    """Retrieves saved IMEI for a vehicle to speed up user entry"""
+    """Auto-fetch IMEI from vehicle_master table"""
     try:
         if v_no:
             res = supabase.table("vehicle_master").select("imei_no").eq("vehicle_no", v_no.upper()).execute()
@@ -109,317 +105,308 @@ def get_vehicle_data(v_no):
         return ""
 
 def send_packet_thread(host, port, packet, results, show_tag=False):
-    """Main network function to communicate with the Bihar VLTS Government Server"""
+    """TCP communication with Government Server"""
     try:
-        # Construct the raw hex/string packet with required termination
         raw_data = packet + "\r\n"
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         sock.settimeout(5)
         sock.connect((host, port))
         sock.sendall(raw_data.encode('ascii'))
         time.sleep(0.1)
         sock.close()
-        
-        # Determine display name for the result table
         tag_name = packet.split(',')[1] if show_tag else "📡 GPS Sync"
-        results.append({
-            "Tag/Packet": tag_name, 
-            "Status": "✅ Accepted", 
-            "Time": datetime.now().strftime("%H:%M:%S")
-        })
+        results.append({"Tag/Packet": tag_name, "Status": "✅ Accepted", "Time": datetime.now().strftime("%H:%M:%S")})
     except Exception:
-        results.append({
-            "Tag/Packet": "Connection", 
-            "Status": "❌ Failed", 
-            "Time": datetime.now().strftime("%H:%M:%S")
-        })
+        results.append({"Tag/Packet": "Error", "Status": "❌ Failed", "Time": datetime.now().strftime("%H:%M:%S")})
 
 # ==========================================================
-# --- 3. ADMINISTRATIVE CONTROL PANEL ---
+# --- 3. UI PAGES (SUPPORT & RECHARGE) ---
+# ==========================================================
+
+def contact_us_page(reason="general"):
+    """Full Support Page Design with Real DB Data"""
+    contact = get_contact_details()
+    st.title("📞 Customer Support")
+    if reason == "deactivated":
+        st.error("⚠️ Account Inactive. Kripya Recharge karein ya Admin se baat karein.")
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("📱 WhatsApp Support")
+        st.write(contact.get('whatsapp_no', 'Not Set'))
+        # Create WhatsApp Clickable Link
+        clean_no = ''.join(filter(str.isdigit, str(contact.get('whatsapp_no', ''))))
+        if clean_no:
+            st.markdown(f"[![Chat](https://img.shields.io/badge/WhatsApp-Chat-green?style=for-the-badge&logo=whatsapp)](https://wa.me/{clean_no})")
+        st.subheader("📧 Email Support")
+        st.write(contact.get('email_id', 'Not Set'))
+    with c2:
+        st.subheader("🕒 Support Timings")
+        st.write(contact.get('support_time', 'Not Set'))
+        st.subheader("🆔 Your Customer ID")
+        if st.session_state.u_data:
+            st.code(f"CID: {1000 + st.session_state.u_data.get('cid_id', 0)}")
+    st.divider()
+    if st.button("🏠 Back to Home Dashboard", use_container_width=True):
+        st.session_state.page = "dashboard"
+        st.rerun()
+
+def recharge_page():
+    """Full Recharge Page Design with Real Plans and QR"""
+    contact = get_contact_details()
+    u_data = st.session_state.u_data
+    cid = u_data.get('cid_id', 0)
+    user_id = st.session_state.user
+    st.title("💳 Recharge Your Account")
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.image(QR_URL, width=240, caption="Scan QR to Pay")
+        st.info(f"Verify ID: **CID-{1000 + cid}**")
+        st.subheader("📜 Recent History")
+        history = supabase.table("recharge_requests").select("*").eq("username", user_id).order("id", desc=True).limit(3).execute()
+        if history.data:
+            for h in history.data:
+                st.write(f"{'⏳' if h['status'] == 'pending' else '✅'} {h['amount']} - {h['status'].title()}")
+    
+    with col2:
+        st.info(f"**Admin UPI ID:** `{contact.get('upi_id', 'admin@upi')}`")
+        m_no = st.text_input("Mobile No", max_chars=10, placeholder="Enter 10 Digits")
+        utr = st.text_input("Enter UTR / Transaction ID")
+        
+        # Fetch Real Plans from DB
+        plans_res = supabase.table("plan_settings").select("*").execute()
+        plans = plans_res.data
+        if plans:
+            plan_options = [f"₹{p['amount']} - {p['plan_name']} ({p['days']} Days)" for p in plans]
+        else:
+            plan_options = ["Standard Plan"]
+            
+        amt = st.selectbox("Select Plan", plan_options)
+        
+        if st.button("Submit Recharge Request", use_container_width=True):
+            if utr and len(m_no) == 10:
+                try:
+                    supabase.table("recharge_requests").insert({
+                        "username": user_id, 
+                        "utr_number": utr, 
+                        "amount": amt, 
+                        "mobile_no": m_no, 
+                        "cid_display": f"CID-{1000+cid}", 
+                        "status": "pending"
+                    }).execute()
+                    st.success("✅ Request Sent! Wait 5-10 mins for approval.")
+                    time.sleep(2)
+                    st.session_state.page = "dashboard"
+                    st.rerun()
+                except Exception:
+                    st.error("UTR already submitted or database error.")
+            else:
+                st.warning("Kripya Mobile No (10 Digits) aur UTR sahi se bharein.")
+                
+    if st.button("🏠 Back to Home"):
+        st.session_state.page = "dashboard"
+        st.rerun()
+
+# ==========================================================
+# --- 4. ADMIN CONTROL PANEL ---
 # ==========================================================
 
 def admin_panel():
-    """Full access dashboard for the owner/admin"""
-    st.sidebar.title("🛠️ System Administrator")
-    
+    """Admin Dashboard for Logs and User Control"""
+    st.sidebar.title("🛠️ Admin Control")
     if st.sidebar.button("Secure Logout"):
         st.session_state.logged_in = False
         st.rerun()
+        
+    t1, t2, t3, t4, t5 = st.tabs(["📊 Activity Logs", "🚀 Master Injector", "🏷️ Tags", "👤 Users", "⚙️ Settings"])
     
-    # Tabs for different admin sections
-    tab_reports, tab_master, tab_tags, tab_users = st.tabs([
-        "📊 Activity Reports", 
-        "🚀 Master Injector", 
-        "🏷️ Global Tags", 
-        "👤 User Management"
-    ])
-    
-    with tab_reports:
-        st.subheader("📅 User Activity Tracking")
-        search_date = st.date_input("Select Report Date", datetime.now())
-        
-        # Filter logs by date range
-        date_start = f"{search_date}T00:00:00"
-        date_end = f"{search_date}T23:59:59"
-        
-        log_res = supabase.table("activity_logs").select("*").gte("timestamp", date_start).lte("timestamp", date_end).execute()
-        
-        if log_res.data:
-            df_logs = pd.DataFrame(log_res.data)
-            st.metric("Total Packets Triggered", len(df_logs))
-            st.dataframe(df_logs[['timestamp', 'username', 'vehicle_no', 'action']], use_container_width=True)
+    with t1:
+        st.subheader("📅 User Activity Reports")
+        d = st.date_input("Filter by Date", datetime.now())
+        act = supabase.table("activity_logs").select("*").gte("timestamp", f"{d}T00:00:00").lte("timestamp", f"{d}T23:59:59").execute()
+        if act.data:
+            df_act = pd.DataFrame(act.data)
+            st.dataframe(df_act[['timestamp', 'username', 'vehicle_no', 'action']], use_container_width=True)
         else:
-            st.info("No user activity recorded for this specific date.")
-
-    with tab_master:
-        st.subheader("🚀 Admin Master Injector (Raw Stream)")
-        adm_v = st.text_input("Vehicle Number (Admin)").upper()
-        adm_i = st.text_input("IMEI Number (Admin)")
-        
+            st.info("No activity recorded for this date.")
+            
+    with t2:
+        st.subheader("🚀 Admin Master Injector")
+        adm_v = st.text_input("V-No (Admin)").upper()
+        adm_i = st.text_input("IMEI (Admin)")
         if not st.session_state.admin_running:
-            if st.button("🔥 START GLOBAL INJECTION", type="primary", use_container_width=True):
-                if adm_v and adm_i:
-                    st.session_state.admin_running = True
-                    st.rerun()
+            if st.button("🔥 START MASTER INJECTION"):
+                st.session_state.admin_running = True
+                st.rerun()
         else:
-            if st.button("🛑 STOP GLOBAL INJECTION", use_container_width=True):
+            if st.button("🛑 STOP MASTER INJECTION"):
                 st.session_state.admin_running = False
                 st.rerun()
-            
-            # Live monitoring area
-            monitor_text = st.empty()
-            monitor_table = st.empty()
-            
+            tbl_area = st.empty()
             while st.session_state.admin_running:
-                results_list = []
-                tags_to_use = get_tags()
-                current_time_str = datetime.now().strftime("%d%m%Y,%H%M%S")
-                
-                for t in tags_to_use:
-                    # Construct admin master packet
-                    p_master = f"$PVT,{t.upper()},2.1.1,NR,01,L,{adm_i},{adm_v},1,{current_time_str},25.5940,N,85.1376,E,0,0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*"
-                    monitor_text.text_area(f"Streaming Tag: {t}", value=p_master, height=70)
-                    send_packet_thread("vlts.bihar.gov.in", 9999, p_master, results_list, True)
-                
-                monitor_table.table(pd.DataFrame(results_list))
+                res, tags, dt = [], get_tags(), datetime.now().strftime("%d%m%Y,%H%M%S")
+                for t in tags:
+                    send_packet_thread("vlts.bihar.gov.in", 9999, f"$PVT,{t.upper()},2.1.1,NR,01,L,{adm_i},{adm_v},1,{dt},25.594,N,85.137,E,0,0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*", res, True)
+                tbl_area.table(pd.DataFrame(res))
                 time.sleep(1)
 
-    with tab_tags:
-        st.subheader("🏷️ System-Wide Tag Control")
-        new_tag_input = st.text_input("Enter New Tag Name").upper()
-        if st.button("➕ Add to System"):
-            if new_tag_input:
-                supabase.table("custom_tags").upsert({"tag_name": new_tag_input}).execute()
-                st.success(f"Tag {new_tag_input} added successfully!")
-                st.rerun()
-        
+    with t3:
+        st.subheader("Manage Global Tags")
+        nt = st.text_input("Add New Tag").upper()
+        if st.button("Add to System"):
+            supabase.table("custom_tags").upsert({"tag_name": nt}).execute()
+            st.rerun()
         st.divider()
-        current_tags = get_tags()
-        for tag_item in current_tags:
-            col_tag, col_del = st.columns([5, 1])
-            col_tag.code(tag_item)
-            if col_del.button("❌", key=f"del_{tag_item}"):
-                supabase.table("custom_tags").delete().eq("tag_name", tag_item).execute()
+        for t in get_tags():
+            c1, c2 = st.columns([5,1])
+            c1.code(t)
+            if c2.button("❌", key=f"del_{t}"):
+                supabase.table("custom_tags").delete().eq("tag_name", t).execute()
                 st.rerun()
 
-    with tab_users:
-        st.subheader("👤 User Account Controls")
-        search_q = st.text_input("Search User by Name or ID")
-        if search_q:
-            user_list = supabase.table("user_profiles").select("*").ilike("username", f"%{search_q}%").execute()
-            for u_row in user_list.data:
-                with st.expander(f"User: {u_row['username']} (CID-{1000 + u_row['cid_id']})"):
-                    st.write(f"Plan Expiry: {u_row['expiry_date']}")
-                    if st.button(f"Extend 28 Days for {u_row['username']}", key=f"ext_{u_row['username']}"):
-                        old_exp = datetime.strptime(u_row['expiry_date'], '%Y-%m-%d')
-                        new_exp = (max(old_exp, datetime.now()) + timedelta(days=28)).strftime('%Y-%m-%d')
-                        supabase.table("user_profiles").update({"expiry_date": new_exp}).eq("username", u_row['username']).execute()
-                        st.success("Plan extended!")
+    with t4:
+        st.subheader("User Database")
+        s = st.text_input("Search Username")
+        if s:
+            users = supabase.table("user_profiles").select("*").ilike("username", f"%{s}%").execute()
+            for u in users.data:
+                with st.expander(f"{u['username']} (CID-{1000+u['cid_id']})"):
+                    st.write(f"Expiry: {u['expiry_date']}")
+                    if st.button(f"Extend 28 Days", key=f"e_{u['username']}"):
+                        new_exp = (datetime.strptime(u['expiry_date'], '%Y-%m-%d') + timedelta(days=28)).strftime('%Y-%m-%d')
+                        supabase.table("user_profiles").update({"expiry_date": new_exp}).eq("username", u['username']).execute()
                         st.rerun()
+    
+    with t5:
+        st.subheader("Global App Settings")
+        curr = get_contact_details()
+        with st.form("settings"):
+            w = st.text_input("WhatsApp", curr.get('whatsapp_no'))
+            e = st.text_input("Email", curr.get('email_id'))
+            up = st.text_input("UPI ID", curr.get('upi_id'))
+            if st.form_submit_button("Save All"):
+                supabase.table("contact_settings").upsert({"id": 1, "whatsapp_no": w, "email_id": e, "upi_id": up}).execute()
+                st.success("Settings Saved!")
+                st.rerun()
+
 # ==========================================================
-# --- 4. USER INTERFACE & VEHICLE DASHBOARD ---
+# --- 5. USER PANEL ---
 # ==========================================================
 
 def user_panel():
-    """Main dashboard for Bihar VLTS users"""
-    user_info = st.session_state.u_data
-    
-    # Calculate Remaining Days
-    expiry_dt = datetime.strptime(user_info['expiry_date'], '%Y-%m-%d')
-    days_left = (expiry_dt - datetime.now()).days + 1
+    """User Dashboard with Live Injector and Map"""
+    u_data = st.session_state.u_data
+    exp_dt = datetime.strptime(u_data['expiry_date'], '%Y-%m-%d')
+    days_left = (exp_dt - datetime.now()).days + 1
     
     st.sidebar.title(f"👋 Welcome, {st.session_state.user}")
-    st.sidebar.info(f"🆔 CID-{1000 + user_info.get('cid_id', 0)}")
+    st.sidebar.info(f"🆔 CID-{1000 + u_data.get('cid_id', 0)}")
     
-    # Check for Expired or Inactive Account
-    if user_info.get('status') == 'inactive' or days_left <= 0:
-        st.sidebar.error("❌ Account Expired or Disabled")
+    if u_data.get('status') == 'inactive' or days_left <= 0:
         if st.sidebar.button("💳 Recharge Now", use_container_width=True):
             st.session_state.page = "recharge"
             st.rerun()
-        
-        # Router for inactive state
         if st.session_state.page == "recharge":
             recharge_page()
         else:
-            st.title("🚫 Account Access Restricted")
-            st.warning("Aapka account expire ho chuka hai. Kripya recharge karein.")
-            st.info("Support ke liye side menu mein Support button ka use karein.")
+            contact_us_page(reason="deactivated")
         return
 
-    # Active User Sidebar Controls
     st.sidebar.success(f"📅 {days_left} Days Remaining")
-    
     if st.sidebar.button("🏠 Home Dashboard", use_container_width=True):
         st.session_state.page = "dashboard"
         st.rerun()
-    
     if st.sidebar.button("💳 Recharge Plan", use_container_width=True):
         st.session_state.page = "recharge"
         st.rerun()
-        
     if st.sidebar.button("📞 Support Center", use_container_width=True):
         st.session_state.page = "contact"
         st.rerun()
-
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
 
-    # Page Routing
+    # Routing
     if st.session_state.page == "recharge":
         recharge_page()
         return
-    elif st.session_state.page == "contact":
+    if st.session_state.page == "contact":
         contact_us_page()
         return
 
-    # --- MAIN INJECTOR DASHBOARD ---
-    st.title("🚀 Bihar VLTS Live Injector")
-    
-    col_input_left, col_input_right = st.columns([2, 1])
-    
-    with col_input_right:
+    # --- MAIN INJECTOR ---
+    st.title("🚀 Bihar VLTS Live Sync")
+    c_l, c_r = st.columns([2, 1])
+    with c_r:
         st.subheader("🏷️ Custom Tag")
-        tag_user_input = st.text_input("Enter New Tag (ex: TEST)").upper()
+        u_t = st.text_input("New Tag (DB Save)").upper()
         if st.button("Save Tag Permanently"):
-            if tag_user_input:
-                supabase.table("custom_tags").upsert({"tag_name": tag_user_input.strip()}).execute()
-                st.success(f"Tag {tag_user_input} saved to database!")
-                time.sleep(0.5)
-                st.rerun()
+            if u_t:
+                supabase.table("custom_tags").upsert({"tag_name": u_t.strip()}).execute()
+                st.success("Tag Saved!"); time.sleep(0.5); st.rerun()
+    with c_l:
+        v = st.text_input("Vehicle Number (Bihar VLTS)").upper()
+        im = st.text_input("IMEI Number (15 Digits)", value=get_vehicle_data(v) if v else "", max_chars=15)
     
-    with col_input_left:
-        # VEHICLE NUMBER (Auto-Capitalized)
-        v_num = st.text_input("Vehicle Number (Bihar)", placeholder="BR01...").upper()
-        
-        # IMEI NUMBER (Fetch automatically if exists)
-        imei_saved = get_vehicle_data(v_num) if v_num else ""
-        i_num = st.text_input("IMEI Number (15 Digits)", value=imei_saved, max_chars=15)
-
-    # --- LIVE MAP SECTION ---
-    st.markdown("### 🗺️ Live Vehicle Tracking")
-    location_data = pd.DataFrame({
-        'lat': [user_info['latitude']], 
-        'lon': [user_info['longitude']]
-    })
-    st.map(location_data, height=450)
+    st.markdown("### 🗺️ Live Tracking View")
+    st.map(pd.DataFrame({'lat': [u_data['latitude']], 'lon': [u_data['longitude']]}), height=450)
     
     st.divider()
-
-    # --- PROCESS EXECUTION CONTROL ---
     if not st.session_state.running:
         if st.button("🚀 START DATA SYNC", type="primary", use_container_width=True):
-            if v_num and i_num:
+            if v and im:
                 try:
-                    # FIX: Save Vehicle and IMEI to Master Table
-                    payload_master = {"vehicle_no": v_num.upper(), "imei_no": i_num}
-                    supabase.table("vehicle_master").upsert(payload_master, on_conflict="vehicle_no").execute()
-                    
-                    # FIX: Log the START activity
-                    log_activity(st.session_state.user, v_num, "START")
-                    
+                    # Save IMEI to Master Table
+                    supabase.table("vehicle_master").upsert({"vehicle_no": v.upper(), "imei_no": im}, on_conflict="vehicle_no").execute()
+                    # Log START Activity
+                    log_activity(st.session_state.user, v, "START")
                     st.session_state.running = True
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Database Sync Error: {e}")
+                    st.error(f"DB Error: {e}")
             else:
-                st.warning("Kripya Vehicle Number aur IMEI sahi se bharein.")
+                st.warning("Please enter Vehicle No and IMEI.")
     else:
         if st.button("🛑 STOP DATA SYNC", use_container_width=True):
-            # FIX: Log the STOP activity
-            log_activity(st.session_state.user, v_num if v_num else "Unknown", "STOP")
+            # Log STOP Activity
+            log_activity(st.session_state.user, v if v else "Unknown", "STOP")
             st.session_state.running = False
             st.rerun()
-        
-        # Display Live Result Table
-        live_status_area = st.empty()
-        
+            
+        status_area = st.empty()
         while st.session_state.running:
-            res_table_data = []
-            available_tags = get_tags()
-            dt_now = datetime.now().strftime("%d%m%Y,%H%M%S")
-            
-            for tag in available_tags:
-                # Construct official government packet
-                packet_str = f"$PVT,{tag.upper()},2.1.1,NR,01,L,{i_num},{v_num},1,{dt_now},{user_info['latitude']:.7f},N,{user_info['longitude']:.7f},E,0,0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*"
-                send_packet_thread("vlts.bihar.gov.in", 9999, packet_str, res_table_data)
-            
-            live_status_area.table(pd.DataFrame(res_table_data))
+            res_data, tags = [], get_tags()
+            dt = datetime.now().strftime("%d%m%Y,%H%M%S")
+            for t in tags:
+                # Official Govt Packet Format
+                p = f"$PVT,{t.upper()},2.1.1,NR,01,L,{im},{v},1,{dt},{u_data['latitude']:.7f},N,{u_data['longitude']:.7f},E,0,0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*"
+                send_packet_thread("vlts.bihar.gov.in", 9999, p, res_data)
+            status_area.table(pd.DataFrame(res_data))
             time.sleep(1)
 
 # ==========================================================
-# --- 5. SUPPORT & RECHARGE PAGES (FULL DEFINITION) ---
-# ==========================================================
-
-def contact_us_page():
-    contact = get_contact_details()
-    st.title("📞 Customer Support")
-    st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        st.write(f"**WhatsApp:** {contact.get('whatsapp_no')}")
-        st.write(f"**Email:** {contact.get('email_id')}")
-    with c2:
-        st.write(f"**Timings:** {contact.get('support_time', '10 AM - 6 PM')}")
-        st.code(f"CID: {1000 + st.session_state.u_data.get('cid_id', 0)}")
-    if st.button("Back"):
-        st.session_state.page = "dashboard"; st.rerun()
-
-def recharge_page():
-    contact = get_contact_details()
-    st.title("💳 Recharge Panel")
-    u_data = st.session_state.u_data
-    st.image(QR_URL, width=240)
-    st.info(f"Pay to: {contact.get('upi_id')}")
-    utr = st.text_input("Enter UTR Number")
-    if st.button("Submit"):
-        if utr:
-            st.success("Recharge request sent!")
-            time.sleep(2)
-            st.session_state.page = "dashboard"; st.rerun()
-
-# ==========================================================
-# --- 6. MAIN APPLICATION ENTRY POINT ---
+# --- 6. MAIN EXECUTION ---
 # ==========================================================
 
 def main():
     if not st.session_state.logged_in:
-        st.title("🔐 Secure Login")
-        u_input = st.text_input("Username")
-        p_input = st.text_input("Password", type="password")
+        st.title("🔐 Secure System Login")
+        u_in = st.text_input("User Name")
+        p_in = st.text_input("Password", type="password")
         if st.button("Login"):
-            login_res = check_login(u_input, p_input)
-            if login_res:
+            res = check_login(u_in, p_in)
+            if res:
                 st.session_state.update({
-                    'logged_in': True,
-                    'user': login_res['username'],
-                    'role': login_res['role'],
-                    'u_data': login_res.get('data')
+                    'logged_in': True, 
+                    'user': res['username'], 
+                    'role': res['role'], 
+                    'u_data': res.get('data')
                 })
                 st.rerun()
             else:
-                st.error("Invalid credentials.")
+                st.error("Invalid Username or Password.")
     elif st.session_state.role == 'admin':
         admin_panel()
     else:
