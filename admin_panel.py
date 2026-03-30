@@ -1,130 +1,170 @@
 import streamlit as st
 import pandas as pd
+import time
 from datetime import datetime, timedelta
 from database import supabase, get_tags
 
 def admin_panel():
-    st.sidebar.title("🛠️ System Admin")
-    if st.sidebar.button("Logout Admin", use_container_width=True):
+    # --- Sidebar Styling ---
+    st.sidebar.markdown("## 👑 Admin Control Center")
+    st.sidebar.divider()
+    if st.sidebar.button("🔒 Secure Logout", use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
     
+    # --- Main Tabs Layout ---
     t1, t2, t3, t4, t5 = st.tabs([
-        "📊 Reports", 
+        "📊 Activity Reports", 
         "🚀 Master Injector", 
-        "🏷️ Tag Control", 
+        "🏷️ Tag Management", 
         "👤 User Management", 
-        "💳 Recharges"
+        "💳 Recharge Desk"
     ])
     
-    # --- POINT 1: MASTER INJECTOR (FULL CONTROL) ---
-    with t2:
-        st.subheader("🚀 Global Master Control")
-        col1, col2 = st.columns(2)
-        with col1:
-            m_v = st.text_input("Vehicle No", value="BR01AB1234").upper()
-            m_i = st.text_input("IMEI No", value="123456789012345")
-        with col2:
-            m_lat = st.number_input("Lat", value=25.5940, format="%.4f")
-            m_lon = st.number_input("Lon", value=85.1370, format="%.4f")
+    # --- 1. ACTIVITY REPORTS ---
+    with t1:
+        st.markdown("### 📅 Live Activity Reports")
+        rep_date = st.date_input("Filter by Date", datetime.now())
+        log_res = supabase.table("activity_logs").select("*").gte("created_at", f"{rep_date}T00:00:00").lte("created_at", f"{rep_date}T23:59:59").execute()
         
-        m_interval = st.slider("Time Interval (Seconds)", 1, 10, 1)
-        m_tag = st.text_input("Test Specific Tag (Optional)").upper()
+        if log_res.data:
+            df_log = pd.DataFrame(log_res.data)
+            st.dataframe(df_log[['created_at', 'user_id', 'vehicle_no']], use_container_width=True)
+            csv = df_log.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Excel/CSV", csv, f"Bihar_Logs_{rep_date}.csv", "text/csv")
+        else:
+            st.info("No logs found for this date.")
 
-        st.markdown("### 📋 Live Data String")
-        dt = datetime.now().strftime("%d%m%Y,%H%M%S")
-        curr_tag = m_tag if m_tag else "VLT"
-        test_packet = f"$PVT,{curr_tag},2.1.1,NR,01,L,{m_i},{m_v},1,{dt},{m_lat},N,{m_lon},E,0,0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*"
-        st.code(test_packet, language="text")
+    # --- 2. MASTER INJECTOR (FULL CONTROL) ---
+    with t2:
+        st.markdown("### 🚀 Global Injector Overrides")
+        with st.container(border=True):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                m_v = st.text_input("Vehicle No", value="BR01-8888").upper()
+                m_i = st.text_input("IMEI No", value="864231000000001")
+            with c2:
+                m_lat = st.number_input("Fixed Lat", value=25.5940, format="%.6f")
+                m_lon = st.number_input("Fixed Lon", value=85.1370, format="%.6f")
+            with c3:
+                m_int = st.select_slider("Interval (Sec)", options=[1, 2, 5, 10], value=1)
+                m_tag_over = st.text_input("Force Tag (Optional)").upper()
+
+        st.markdown("#### 🛰️ Outgoing Server Packet")
+        dt_p = datetime.now().strftime("%d%m%Y,%H%M%S")
+        final_tag = m_tag_over if m_tag_over else "GPS"
+        packet_str = f"$PVT,{final_tag},2.1.1,NR,01,L,{m_i},{m_v},1,{dt_p},{m_lat},N,{m_lon},E,0,0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*"
+        st.code(packet_str, language="bash")
 
         if not st.session_state.get('admin_running', False):
-            if st.button("🔥 START MASTER SYNC", type="primary"):
+            if st.button("🔥 START INJECTION", type="primary", use_container_width=True):
                 st.session_state.admin_running = True
                 st.rerun()
         else:
-            st.error("SYNC RUNNING...")
-            if st.button("🛑 STOP"):
+            st.error("⚠️ MASTER SYNC ACTIVE")
+            if st.button("🛑 EMERGENCY STOP", use_container_width=True):
                 st.session_state.admin_running = False
                 st.rerun()
 
-    # --- POINT 2: TAG CONTROL (CAPITAL AUTO-SYNC) ---
+    # --- 3. TAG CONTROL (FULL LIST) ---
     with t3:
-        st.subheader("🏷️ Database Tags")
-        raw_t = st.text_input("Add Tag (Auto-Capital)")
-        if st.button("Save Tag"):
-            if raw_t:
-                supabase.table("custom_tags").upsert({"tag_name": raw_t.upper()}).execute()
-                st.rerun()
-        st.divider()
-        all_tags = get_tags()
-        st.write(f"Total Tags in DB: {len(all_tags)}")
-        for t in all_tags:
-            c1, c2 = st.columns([4,1])
-            c1.code(t)
-            if c2.button("❌", key=f"del_{t}"):
-                supabase.table("custom_tags").delete().eq("tag_name", t).execute()
-                st.rerun()
-
-    # --- POINT 3 & NEW: USER MANAGEMENT (ADVANCED LIST) ---
-    with t4:
-        st.subheader("👤 Master User Control")
+        st.markdown("### 🏷️ System Tag Manager")
+        new_tag_raw = st.text_input("Add New Tag (Auto-Capitalize)")
+        if st.button("➕ Save Tag to Database"):
+            if new_tag_raw:
+                supabase.table("custom_tags").upsert({"tag_name": new_tag_raw.upper()}).execute()
+                st.success("Tag Saved Successfully!"); time.sleep(0.5); st.rerun()
         
-        # Section A: Create User with Real-time Check
-        with st.expander("➕ Create New Account"):
-            new_u = st.text_input("Enter Username")
-            if new_u:
-                check = supabase.table("user_profiles").select("username").eq("username", new_u).execute()
-                if check.data: st.error("❌ Username Already Taken!")
-                else: st.success("✅ Username Available")
-            
-            new_p = st.text_input("Password")
-            v_days = st.number_input("Validity (Days)", value=28)
-            if st.button("🔥 Create User"):
-                exp = (datetime.now() + timedelta(days=v_days)).strftime('%Y-%m-%d')
-                supabase.table("user_profiles").insert({"username": new_u, "password": new_p, "expiry_date": exp, "status": "active"}).execute()
-                st.rerun()
+        st.divider()
+        st.markdown("#### 📋 Full Tag Inventory")
+        db_tags = get_tags()
+        # Displaying in 4 columns grid for full visibility
+        grid = st.columns(4)
+        for idx, tag in enumerate(db_tags):
+            with grid[idx % 4]:
+                st.markdown(f"**{tag}**")
+                if st.button("🗑️", key=f"rm_{tag}"):
+                    supabase.table("custom_tags").delete().eq("tag_name", tag).execute()
+                    st.rerun()
+
+    # --- 4. USER MANAGEMENT (ADVANCED EDITOR) ---
+    with t4:
+        st.markdown("### 👤 User Master Control")
+        
+        # A. Create User with Location Fix
+        with st.expander("✨ Create New User with Fixed Location"):
+            with st.form("create_form"):
+                ca, cb = st.columns(2)
+                u_n = ca.text_input("Username")
+                u_p = cb.text_input("Password")
+                la = ca.number_input("Fix Latitude", value=25.5941, format="%.6f")
+                lo = cb.number_input("Fix Longitude", value=85.1371, format="%.6f")
+                val_days = st.number_input("Validity Days", value=28)
+                
+                if st.form_submit_button("🚀 Finalize & Create"):
+                    if u_n and u_p:
+                        # Real-time Duplicate Check
+                        dup = supabase.table("user_profiles").select("username").eq("username", u_n).execute()
+                        if dup.data:
+                            st.error("❌ Username already exists!")
+                        else:
+                            exp = (datetime.now() + timedelta(days=val_days)).strftime('%Y-%m-%d')
+                            supabase.table("user_profiles").insert({
+                                "username": u_n, "password": u_p, "expiry_date": exp,
+                                "status": "active", "latitude": la, "longitude": lo
+                            }).execute()
+                            st.success(f"User {u_n} created at {la}, {lo}")
+                            time.sleep(1); st.rerun()
 
         st.divider()
-
-        # Section B: Dedicated User List & Search
-        users_res = supabase.table("user_profiles").select("*").execute()
-        if users_res.data:
-            df_users = pd.DataFrame(users_res.data)
-            st.metric("Total Users", len(df_users))
+        
+        # B. Full Data Editor & Search
+        all_u = supabase.table("user_profiles").select("*").execute()
+        if all_u.data:
+            df_u = pd.DataFrame(all_u.data)
+            st.metric("Total Active Users", len(df_u[df_u['status']=='active']))
             
-            search_name = st.text_input("🔍 Search User by Name")
-            filtered_users = df_users[df_users['username'].str.contains(search_name, case=False)] if search_name else df_users
+            search_key = st.text_input("🔍 Search Master Database (User/CID)")
+            f_u = df_u[df_u['username'].str.contains(search_key, case=False)] if search_key else df_u
 
-            for index, row in filtered_users.iterrows():
-                with st.container():
-                    col_u, col_v, col_a = st.columns([2, 2, 3])
-                    with col_u:
-                        st.write(f"**{row['username']}**")
-                        status_color = "🟢" if row['status'] == "active" else "🔴"
-                        st.write(f"{status_color} {row['status'].upper()}")
-                    with col_v:
-                        st.write(f"📅 {row['expiry_date']}")
-                    with col_a:
-                        c1, c2, c3 = st.columns(3)
-                        # Active/Inactive Toggle
-                        if c1.button("🔄", key=f"tg_{row['username']}", help="Toggle Status"):
-                            new_s = "inactive" if row['status'] == "active" else "active"
-                            supabase.table("user_profiles").update({"status": new_s}).eq("username", row['username']).execute()
+            for _, row in f_u.iterrows():
+                with st.container(border=True):
+                    c_head, c_body, c_act = st.columns([1, 2, 2])
+                    with c_head:
+                        st.markdown(f"**ID:** CID-{1000 + row['cid_id']}")
+                        st.markdown(f"### {row['username']}")
+                    with c_body:
+                        st.write(f"🔑 Pass: `{row['password']}`")
+                        st.write(f"📍 Loc: `{row['latitude']}, {row['longitude']}`")
+                        st.write(f"📅 Exp: **{row['expiry_date']}**")
+                    with c_act:
+                        st.write("--- **Quick Actions** ---")
+                        # 3-Way Control
+                        ca1, ca2, ca3 = st.columns(3)
+                        # Toggle Status
+                        if ca1.button("🟢" if row['status']=='active' else "🔴", key=f"t_{row['username']}"):
+                            n_s = "inactive" if row['status'] == "active" else "active"
+                            supabase.table("user_profiles").update({"status": n_s}).eq("username", row['username']).execute()
                             st.rerun()
-                        # Validity Increase (+7 Days)
-                        if c2.button("➕", key=f"up_{row['username']}", help="Add 7 Days"):
-                            new_ex = (datetime.strptime(row['expiry_date'], '%Y-%m-%d') + timedelta(days=7)).strftime('%Y-%m-%d')
-                            supabase.table("user_profiles").update({"expiry_date": new_ex}).eq("username", row['username']).execute()
+                        # Validity Control
+                        if ca2.button("➕ 7D", key=f"p_{row['username']}"):
+                            n_e = (datetime.strptime(row['expiry_date'], '%Y-%m-%d') + timedelta(days=7)).strftime('%Y-%m-%d')
+                            supabase.table("user_profiles").update({"expiry_date": n_e}).eq("username", row['username']).execute()
                             st.rerun()
-                        # Validity Decrease (-7 Days)
-                        if c3.button("➖", key=f"dn_{row['username']}", help="Remove 7 Days"):
-                            new_ex = (datetime.strptime(row['expiry_date'], '%Y-%m-%d') - timedelta(days=7)).strftime('%Y-%m-%d')
-                            supabase.table("user_profiles").update({"expiry_date": new_ex}).eq("username", row['username']).execute()
+                        if ca3.button("➖ 7D", key=f"m_{row['username']}"):
+                            n_e = (datetime.strptime(row['expiry_date'], '%Y-%m-%d') - timedelta(days=7)).strftime('%Y-%m-%d')
+                            supabase.table("user_profiles").update({"expiry_date": n_e}).eq("username", row['username']).execute()
                             st.rerun()
-                st.divider()
 
-    # Reports & Recharges (Keeping them as they were)
-    with t1:
-        st.info("Activity Reports Section")
+    # --- 5. RECHARGE APPROVALS ---
     with t5:
-        st.info("Recharge Requests Section")
+        st.markdown("### 💳 Pending Payments")
+        reqs = supabase.table("recharge_requests").select("*").eq("status", "pending").execute()
+        if reqs.data:
+            for r in reqs.data:
+                st.warning(f"**User:** {r['username']} | **UTR:** {r['utr_number']} | **Mob:** {r['mobile_no']}")
+                if st.button(f"✅ Approve {r['username']}", key=f"ok_{r['id']}"):
+                    supabase.table("recharge_requests").update({"status": "approved"}).eq("id", r['id']).execute()
+                    st.rerun()
+        else:
+            st.info("No pending requests found.")
