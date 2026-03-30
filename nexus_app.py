@@ -6,9 +6,10 @@ import threading
 from datetime import datetime, timedelta
 from supabase import create_client, Client
 
-# --- SUPABASE CONFIG ---
+# --- CONFIG ---
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
+QR_URL = "https://ibb.co/DDdhFfvs" # <--- YAHAN APNI QR IMAGE LINK DALO
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(page_title="Bihar VLTS Pro Max", layout="wide")
@@ -30,6 +31,10 @@ def check_login(user, pwd):
     if res.data:
         return {"username": res.data[0]['username'], "role": "user", "data": res.data[0]}
     return None
+
+def get_plans():
+    res = supabase.table("plan_settings").select("*").execute()
+    return res.data
 
 def get_tags():
     res = supabase.table("custom_tags").select("tag_name").execute()
@@ -77,29 +82,38 @@ def login_page():
 def recharge_page():
     cid = st.session_state.u_data.get('cid_id', 0)
     st.title("💳 Recharge Your Plan")
-    st.info(f"### Your Customer ID: **CID-{1000 + cid}**")
     
-    st.subheader("Step 1: Pay using UPI")
-    st.write("**UPI ID:** amit@upi") 
-    st.write("**Admin Contact:** +91 XXXXX XXXXX")
-    st.warning(f"⚠️ **Note:** Payment karte waqt message mein apni ID (**CID-{1000 + cid}**) zaroor likhein.")
-    
-    st.divider()
-    st.subheader("Step 2: Submit Details")
-    utr = st.text_input("Transaction ID / UTR Number", placeholder="12 Digit Number")
-    amt = st.selectbox("Select Plan", ["₹499 - 1 Month", "₹1299 - 3 Months"])
-    
-    if st.button("Submit Request", use_container_width=True):
-        if utr:
-            try:
-                supabase.table("recharge_requests").insert({
-                    "username": st.session_state.user,
-                    "utr_number": utr,
-                    "amount": amt
-                }).execute()
-                st.success("✅ Request Sent! Admin jald hi approve kar dega.")
-            except:
-                st.error("Ye Transaction ID pehle hi submit ho chuki hai.")
+    col_a, col_b = st.columns([1, 2])
+    with col_a:
+        st.image(QR_URL, caption="Scan to Pay", width=250)
+        st.info(f"Your ID: **CID-{1000 + cid}**")
+        
+    with col_b:
+        st.subheader("Step 1: Scan & Pay")
+        st.write("**UPI ID:** amit@upi") 
+        st.write("**Admin Contact:** +91 XXXXX XXXXX")
+        st.warning(f"⚠️ Payment note mein **CID-{1000 + cid}** zaroor likhein.")
+        
+        st.divider()
+        st.subheader("Step 2: Submit Details")
+        utr = st.text_input("UTR / Transaction ID", placeholder="12 Digit Number")
+        
+        # Admin dwara set kiye gaye plans yahan dikhenge
+        plans = get_plans()
+        plan_options = [f"₹{p['amount']} - {p['plan_name']} ({p['days']} Days)" for p in plans]
+        amt = st.selectbox("Select Plan", plan_options)
+        
+        if st.button("Submit Request", use_container_width=True):
+            if utr:
+                try:
+                    supabase.table("recharge_requests").insert({
+                        "username": st.session_state.user,
+                        "utr_number": utr,
+                        "amount": amt
+                    }).execute()
+                    st.success("✅ Request Sent! Admin jald hi approve kar dega.")
+                except:
+                    st.error("Ye UTR pehle hi submit ho chuka hai.")
     
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "dashboard"
@@ -111,21 +125,20 @@ def admin_panel():
         st.session_state.logged_in = False
         st.rerun()
 
-    menu = st.tabs(["User Management", "Recharge Requests", "Usage Logs", "Manage Tags"])
+    menu = st.tabs(["Users", "Recharges", "Plans Control", "Manage Tags"])
     
     with menu[0]:
         st.subheader("Create New User")
+        # (Same as before)
         with st.form("new_user"):
             new_u = st.text_input("New User ID")
             new_p = st.text_input("New Password")
-            lat = st.number_input("Assign Latitude", format="%.7f", value=25.5941)
-            lon = st.number_input("Assign Longitude", format="%.7f", value=85.1376)
-            plan = st.selectbox("Plan", ["1 Month (28 Days)", "3 Months (84 Days)"])
+            lat = st.number_input("Latitude", value=25.5941, format="%.7f")
+            lon = st.number_input("Longitude", value=85.1376, format="%.7f")
             if st.form_submit_button("Create User"):
-                exp = datetime.now() + timedelta(days=28) if "1 Month" in plan else datetime.now() + timedelta(days=84)
                 supabase.table("user_profiles").insert({
                     "username": new_u, "password": new_p, "latitude": lat, 
-                    "longitude": lon, "expiry_date": exp.strftime("%Y-%m-%d")
+                    "longitude": lon, "expiry_date": (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d")
                 }).execute()
                 st.success("User Created!")
 
@@ -135,19 +148,38 @@ def admin_panel():
         if reqs.data:
             for r in reqs.data:
                 col1, col2 = st.columns([3, 1])
-                col1.write(f"👤 {r['username']} | 💰 {r['amount']} | 🔑 UTR: {r['utr_number']}")
-                if col2.button("Approve", key=r['id']):
+                col1.write(f"👤 {r['username']} | {r['amount']} | UTR: {r['utr_number']}")
+                if col2.button("Approve", key=f"app_{r['id']}"):
+                    # Extract days from amount string (e.g. "28 Days")
+                    try:
+                        days_to_add = int(r['amount'].split('(')[1].split(' ')[0])
+                    except:
+                        days_to_add = 28
+                        
                     user_res = supabase.table("user_profiles").select("expiry_date").eq("username", r['username']).execute()
                     current_exp = datetime.strptime(user_res.data[0]['expiry_date'], '%Y-%m-%d')
-                    new_exp = max(current_exp, datetime.now()) + timedelta(days=28)
+                    new_exp = max(current_exp, datetime.now()) + timedelta(days=days_to_add)
+                    
                     supabase.table("user_profiles").update({"expiry_date": new_exp.strftime("%Y-%m-%d")}).eq("username", r['username']).execute()
                     supabase.table("recharge_requests").update({"status": "approved"}).eq("id", r['id']).execute()
                     st.success("Approved!")
                     st.rerun()
-        else:
-            st.write("No pending requests.")
+        else: st.write("No pending requests.")
+
+    with menu[2]:
+        st.subheader("💰 Manage Plan Amounts")
+        current_plans = get_plans()
+        for p in current_plans:
+            with st.expander(f"Edit {p['plan_name']}"):
+                new_amt = st.text_input("Amount (₹)", value=p['amount'], key=f"amt_{p['id']}")
+                new_days = st.number_input("Days", value=p['days'], key=f"day_{p['id']}")
+                if st.button("Save Changes", key=f"save_{p['id']}"):
+                    supabase.table("plan_settings").update({"amount": new_amt, "days": new_days}).eq("id", p['id']).execute()
+                    st.success("Plan Updated!")
+                    st.rerun()
 
     with menu[3]:
+        # (Same as before - Manage Tags)
         st.subheader("Manage Global Tags")
         tags = get_tags()
         st.write(f"Current Tags: {tags}")
