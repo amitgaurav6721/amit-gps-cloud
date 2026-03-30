@@ -12,7 +12,7 @@ PORT = 9999
 
 def send_vlts_raw(host, port, raw_packet):
     try:
-        # Aapke simulator wala exact logic: packet + \r\n
+        # EXACT FORMAT: No spaces in \r\n
         final_to_send = raw_packet + "\r\n"
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -49,12 +49,11 @@ def admin_panel():
         all_db_tags = get_tags()
         st.write(f"✅ **{len(all_db_tags)} Tags** loaded from DB.")
 
-        # Fixed Suffix and Checksum from your example
         suffix = "0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
         fixed_cs = "DDE3"
 
         st.divider()
-        col_btn, col_preview = st.columns([1, 2])
+        col_btn, col_info = st.columns([1, 2])
         
         if 'injecting' not in st.session_state:
             st.session_state.injecting = False
@@ -68,10 +67,13 @@ def admin_panel():
                 st.session_state.injecting = False
                 st.rerun()
             
+            # LIVE MONITORING UI
+            status_msg = st.empty()
+            log_container = st.empty()
             preview_box = st.empty()
+            
             cur_lat, cur_lon = base_lat, base_lon
             
-            # --- HIGH SPEED LOOP ---
             while st.session_state.injecting:
                 d_now = datetime.now().strftime("%d%m%Y")
                 t_now = datetime.now().strftime("%H%M%S")
@@ -81,21 +83,38 @@ def admin_panel():
                     cur_lon += random.uniform(0.00001, 0.00005)
                 
                 loc_str = f"{cur_lat:.7f},N,{cur_lon:.7f},E"
+                sent_details = []
                 
-                # Burst send for all tags in DB
+                # Bulk Burst for all Tags
                 for tag in all_db_tags:
-                    # EXACT FORMAT AS YOUR SIMULATOR
                     packet = f"$PVT,{tag},2.1.1,NR,01,L,{i_no},{v_no},1,{d_now},{t_now},{loc_str},{suffix},{fixed_cs}*"
-                    send_vlts_raw(HOST_URL, PORT, packet)
-                
-                preview_box.text_area("Last Packet Sent:", value=packet, height=100)
-                time.sleep(gap)
+                    success = send_vlts_raw(HOST_URL, PORT, packet)
+                    
+                    status_msg.markdown(f"📡 **Firing Tag:** `{tag}`")
+                    sent_details.append(f"✅ {tag}" if success else f"❌ {tag}")
 
-    # --- OTHER TABS (Same as your database setup) ---
+                status_msg.success(f"✅ All {len(all_db_tags)} tags fired at {t_now}")
+                
+                with log_container.expander("📝 Live Tag Status", expanded=True):
+                    st.write(", ".join(sent_details))
+                
+                preview_box.text_area("Last Raw Packet Sent:", value=packet, height=100)
+                time.sleep(gap)
+                log_container.empty()
+
+    # --- OTHER TABS ---
     with t3:
         st.subheader("🏷️ Tag Manager")
         res_t = supabase.table("custom_tags").select("tag_name").execute()
         if res_t.data:
             cols = st.columns(4)
             for i, t in enumerate(res_t.data):
-                with cols[i % 4]: st.info(f"**{t['tag_name']}**")
+                with cols[i % 4]:
+                    st.info(f"**{t['tag_name']}**")
+                    if st.button("🗑️", key=f"del_{i}"):
+                        supabase.table("custom_tags").delete().eq("tag_name", t['tag_name']).execute()
+                        st.rerun()
+
+    with t4:
+        st.subheader("👤 User Management")
+        st.info("User searching and editing will be here.")
