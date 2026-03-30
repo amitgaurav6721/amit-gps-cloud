@@ -389,8 +389,14 @@ def user_panel():
         if st.button("🚀 START SYNC", type="primary", use_container_width=True):
             if v_no and i_no:
                 # Permanent save IMEI to vehicle_master
-                supabase.table("vehicle_master").upsert({"vehicle_no": v_no, "imei_no": i_no}).execute()
-                log_activity(st.session_state.user, v_no, "START")
+# Purani line 392 ko hata kar ye likhein:
+try:
+    supabase.table("vehicle_master").upsert(
+        {"vehicle_no": v_no.upper(), "imei_no": i_no},
+        on_conflict="vehicle_no" 
+    ).execute()
+except Exception as e:
+    st.error(f"Database Error: {e}")                log_activity(st.session_state.user, v_no, "START")
                 st.session_state.running = True; st.rerun()
     else:
         if st.button("🛑 STOP SYNC", use_container_width=True):
