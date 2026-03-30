@@ -66,7 +66,7 @@ def admin_panel():
                 st.session_state.admin_running = False
                 st.rerun()
 
-    # --- 3. TAG CONTROL (FULL LIST) ---
+    # --- 3. TAG CONTROL (FULL LIST FIX) ---
     with t3:
         st.markdown("### 🏷️ System Tag Manager")
         new_tag_raw = st.text_input("Add New Tag (Auto-Capitalize)")
@@ -76,16 +76,20 @@ def admin_panel():
                 st.success("Tag Saved Successfully!"); time.sleep(0.5); st.rerun()
         
         st.divider()
-        st.markdown("#### 📋 Full Tag Inventory")
-        db_tags = get_tags()
-        # Displaying in 4 columns grid for full visibility
-        grid = st.columns(4)
-        for idx, tag in enumerate(db_tags):
-            with grid[idx % 4]:
-                st.markdown(f"**{tag}**")
-                if st.button("🗑️", key=f"rm_{tag}"):
-                    supabase.table("custom_tags").delete().eq("tag_name", tag).execute()
-                    st.rerun()
+        st.markdown("#### 📋 Full Tag Inventory (All Entry)")
+        # Fetching ALL tags without any limit
+        db_tags = supabase.table("custom_tags").select("tag_name").execute()
+        if db_tags.data:
+            tag_list = [t['tag_name'] for t in db_tags.data]
+            grid = st.columns(4)
+            for idx, tag in enumerate(tag_list):
+                with grid[idx % 4]:
+                    st.info(f"**{tag}**")
+                    if st.button("🗑️", key=f"rm_{tag}"):
+                        supabase.table("custom_tags").delete().eq("tag_name", tag).execute()
+                        st.rerun()
+        else:
+            st.warning("No tags found in database.")
 
     # --- 4. USER MANAGEMENT (ADVANCED EDITOR) ---
     with t4:
@@ -113,8 +117,7 @@ def admin_panel():
                                 "username": u_n, "password": u_p, "expiry_date": exp,
                                 "status": "active", "latitude": la, "longitude": lo
                             }).execute()
-                            st.success(f"User {u_n} created at {la}, {lo}")
-                            time.sleep(1); st.rerun()
+                            st.success(f"User {u_n} created successfully!"); time.sleep(1); st.rerun()
 
         st.divider()
         
@@ -122,9 +125,9 @@ def admin_panel():
         all_u = supabase.table("user_profiles").select("*").execute()
         if all_u.data:
             df_u = pd.DataFrame(all_u.data)
-            st.metric("Total Active Users", len(df_u[df_u['status']=='active']))
+            st.metric("Total Registered Users", len(df_u))
             
-            search_key = st.text_input("🔍 Search Master Database (User/CID)")
+            search_key = st.text_input("🔍 Search User Database (Username/CID)")
             f_u = df_u[df_u['username'].str.contains(search_key, case=False)] if search_key else df_u
 
             for _, row in f_u.iterrows():
@@ -134,12 +137,11 @@ def admin_panel():
                         st.markdown(f"**ID:** CID-{1000 + row['cid_id']}")
                         st.markdown(f"### {row['username']}")
                     with c_body:
-                        st.write(f"🔑 Pass: `{row['password']}`")
-                        st.write(f"📍 Loc: `{row['latitude']}, {row['longitude']}`")
-                        st.write(f"📅 Exp: **{row['expiry_date']}**")
+                        st.write(f"🔑 Password: `{row['password']}`")
+                        st.write(f"📍 Location: `{row['latitude']}, {row['longitude']}`")
+                        st.write(f"📅 Expiry: **{row['expiry_date']}**")
                     with c_act:
-                        st.write("--- **Quick Actions** ---")
-                        # 3-Way Control
+                        st.write("**--- Actions ---**")
                         ca1, ca2, ca3 = st.columns(3)
                         # Toggle Status
                         if ca1.button("🟢" if row['status']=='active' else "🔴", key=f"t_{row['username']}"):
