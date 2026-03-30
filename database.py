@@ -7,28 +7,14 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_tags():
     try:
+        # Exact table name: custom_tags | Exact column: tag_name
         res = supabase.table("custom_tags").select("tag_name").execute()
         if res.data:
             return [item['tag_name'] for item in res.data]
         return []
-    except:
+    except Exception as e:
+        st.error(f"DB Error (Tags): {e}")
         return []
-
-def get_vehicle_data(v_no):
-    try:
-        res = supabase.table("vehicle_master").select("imei_no").eq("vehicle_no", v_no.upper()).execute()
-        return res.data[0]['imei_no'] if res.data else ""
-    except:
-        return ""
-
-def log_activity(username, vehicle_no, action):
-    try:
-        supabase.table("activity_logs").insert({
-            "user_id": str(username), 
-            "vehicle_no": f"{str(vehicle_no).upper()} ({action})"
-        }).execute()
-    except:
-        pass
 
 def check_login(user, pwd):
     if user == "admin" and pwd == "admin77":
