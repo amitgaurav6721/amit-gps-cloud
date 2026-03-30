@@ -19,13 +19,15 @@ if 'logged_in' not in st.session_state:
     st.session_state.update({'logged_in': False, 'user': None, 'role': None, 'page': 'dashboard'})
 
 if not st.session_state.logged_in:
-    st.title("🔐 Secure Login")
-    u, p = st.text_input("Username"), st.text_input("Password", type="password")
+    st.title("🔐 Login")
+    u, p = st.text_input("User"), st.text_input("Pass", type="password")
     if st.button("Login"):
         res = check_login(u, p)
         if res:
             st.session_state.update({'logged_in': True, 'user': res['username'], 'role': res['role'], 'u_data': res.get('data')})
             st.rerun()
+        else:
+            st.error("Invalid Login")
 else:
     if st.session_state.role == 'admin':
         admin_panel()
