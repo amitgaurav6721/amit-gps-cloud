@@ -9,10 +9,8 @@ from supabase import create_client, Client
 # --- CONFIG ---
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
-
-# UPDATED: Nayi ImgBB Direct Link jo aapne di hai
+# ImgBB Direct Link
 QR_URL = "https://i.ibb.co/99P60H1z/Whats-App-Image-2026-03-30-at-23-26-19.jpg"
-
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(page_title="Bihar VLTS Pro Max", layout="wide")
@@ -32,9 +30,7 @@ if 'admin_running' not in st.session_state:
 def get_contact_details():
     try:
         res = supabase.table("contact_settings").select("*").eq("id", 1).execute()
-        if res.data:
-            return res.data[0]
-        return {"whatsapp_no": "+91 XXXXX XXXXX", "email_id": "admin@example.com", "support_time": "10 AM - 8 PM", "upi_id": "amit@upi"}
+        return res.data[0] if res.data else {"whatsapp_no": "+91 XXXXX XXXXX", "email_id": "admin@example.com", "support_time": "10 AM - 8 PM", "upi_id": "amit@upi"}
     except:
         return {"whatsapp_no": "Not Set", "email_id": "Not Set", "support_time": "Not Set", "upi_id": "Not Set"}
 
@@ -126,32 +122,49 @@ def recharge_page():
     contact = get_contact_details()
     cid = st.session_state.u_data.get('cid_id', 0)
     st.title("💳 Recharge Your Plan")
-    col_a, col_b = st.columns([1, 2])
-    with col_a:
-        # st.image fixed with new URL
-        st.image(QR_URL, caption="Scan QR to Pay", width=350)
-        st.info(f"ID: **CID-{1000 + cid}**")
-    with col_b:
-        st.subheader("Step 1: Pay")
-        st.write(f"**UPI ID:** {contact.get('upi_id', 'admin@upi')}") 
-        st.warning(f"⚠️ Note mein **CID-{1000 + cid}** likhein.")
+    
+    # Grid Layout to prevent overlap
+    col_left, col_right = st.columns([1, 1.5])
+    
+    with col_left:
+        # Fixed Width for QR Code
+        st.image(QR_URL, caption="Scan QR to Pay", width=280)
+        st.info(f"Your CID: **CID-{1000 + cid}**")
+        
+    with col_right:
+        st.subheader("Step 1: Pay via UPI")
+        st.markdown(f"**UPI ID:** `{contact.get('upi_id', 'admin@upi')}`")
+        st.warning(f"⚠️ Payment note mein **CID-{1000 + cid}** likhna na bhoolein.")
+        
         st.divider()
         st.subheader("Step 2: Submit Details")
-        utr = st.text_input("UTR Number")
+        utr = st.text_input("UTR / Transaction ID", placeholder="Enter 12 digit number")
         plans = get_plans()
         amt_list = [f"₹{p['amount']} - {p['plan_name']} ({p['days']} Days)" for p in plans]
-        amt = st.selectbox("Select Plan", amt_list if amt_list else ["Standard Plan"])
-        if st.button("Submit Request", use_container_width=True):
-            try:
-                supabase.table("recharge_requests").insert({"username": st.session_state.user, "utr_number": utr, "amount": amt}).execute()
-                st.success("✅ Request Sent!"); time.sleep(2); st.session_state.page = "dashboard"; st.rerun()
-            except: st.error("UTR used.")
-    if st.button("⬅️ Back"): st.session_state.page = "dashboard"; st.rerun()
+        amt = st.selectbox("Choose Plan", amt_list if amt_list else ["Standard Plan"])
+        
+        if st.button("Submit Recharge Request", use_container_width=True):
+            if utr:
+                try:
+                    supabase.table("recharge_requests").insert({"username": st.session_state.user, "utr_number": utr, "amount": amt}).execute()
+                    st.success("✅ Request Sent! Admin jald hi approve kar denge.")
+                    time.sleep(2)
+                    st.session_state.page = "dashboard"
+                    st.rerun()
+                except:
+                    st.error("Ye UTR pehle hi submit ho chuka hai.")
+            else:
+                st.error("Kripya UTR number bharein.")
+                
+    if st.button("⬅️ Back to Home"):
+        st.session_state.page = "dashboard"
+        st.rerun()
 
 def admin_panel():
     st.sidebar.title("Admin Dashboard")
     if st.sidebar.button("Logout"): st.session_state.logged_in = False; st.rerun()
     menu = st.tabs(["Users Control", "Master Injector", "Recharges", "Settings", "Manage Tags"])
+    
     with menu[0]:
         st.subheader("🔍 Search & Control")
         search_input = st.text_input("Search by Name, CID (1001), or CID-1001")
@@ -168,6 +181,7 @@ def admin_panel():
                     u_search = supabase.table("user_profiles").select("*").ilike("username", f"%{search_input}%").execute()
             else:
                 u_search = supabase.table("user_profiles").select("*").ilike("username", f"%{search_input}%").execute()
+            
             if u_search.data:
                 for usr in u_search.data:
                     exp_date = datetime.strptime(usr['expiry_date'], '%Y-%m-%d')
@@ -186,6 +200,7 @@ def admin_panel():
                         if c3.button(f"Mark {new_s.upper()}", key=f"s_{usr['username']}"):
                             supabase.table("user_profiles").update({"status": new_s}).eq("username", usr['username']).execute(); st.rerun()
             else: st.warning("No user found.")
+        
         st.divider()
         st.subheader("➕ Create New User")
         with st.form("new_user"):
@@ -194,6 +209,7 @@ def admin_panel():
             lon = st.number_input("Lon", value=85.1376, format="%.7f")
             if st.form_submit_button("Create User"):
                 supabase.table("user_profiles").insert({"username": nu, "password": np, "latitude": lat, "longitude": lon, "expiry_date": (datetime.now() + timedelta(days=28)).strftime("%Y-%m-%d"), "status": "active"}).execute(); st.success("Created!")
+
     with menu[1]:
         st.subheader("🚀 Master Injector")
         vno, imei = st.text_input("V-No", "BR01P1234").upper(), st.text_input("IMEI", "865432109876543")
@@ -211,6 +227,7 @@ def admin_panel():
                     th = threading.Thread(target=send_packet_thread, args=("vlts.bihar.gov.in", 9999, p, res, True))
                     th.start(); th.join()
                 status_area.table(pd.DataFrame(res)); time.sleep(1.0)
+
     with menu[2]:
         st.subheader("Pending Recharges")
         reqs = supabase.table("recharge_requests").select("*").eq("status", "pending").execute()
@@ -228,13 +245,15 @@ def admin_panel():
                     supabase.table("recharge_requests").update({"status": "approved"}).eq("id", r['id']).execute()
                     st.success("Approved & Activated!"); st.rerun()
         else: st.write("No requests.")
+
     with menu[3]:
         st.subheader("⚙️ System Settings")
         curr = get_contact_details()
         with st.form("settings"):
-            w, e, t, u = st.text_input("WhatsApp", curr.get('whatsapp_no', '')), st.text_input("Email", curr.get('email_id', '')), st.text_input("Hours", curr.get('support_time', '')), st.text_input("UPI ID", curr.get('upi_id', ''))
+            w, e, t, u = st.text_input("WhatsApp Number", curr.get('whatsapp_no', '')), st.text_input("Email ID", curr.get('email_id', '')), st.text_input("Hours", curr.get('support_time', '')), st.text_input("UPI ID", curr.get('upi_id', ''))
             if st.form_submit_button("Save All Settings"):
                 supabase.table("contact_settings").upsert({"id": 1, "whatsapp_no": w, "email_id": e, "support_time": t, "upi_id": u}).execute(); st.success("Saved!")
+
     with menu[4]:
         st.subheader("Manage Tags")
         tags = get_tags()
@@ -250,10 +269,12 @@ def user_panel():
     u_data = st.session_state.u_data
     exp = datetime.strptime(u_data['expiry_date'], '%Y-%m-%d')
     days = (exp - datetime.now()).days + 1
+    
     st.sidebar.title(f"👋 {st.session_state.user}")
     st.sidebar.info(f"🆔 CID-{1000 + u_data.get('cid_id', 0)}")
+    
     if u_data.get('status') == 'inactive' or days <= 0:
-        if u_data.get('status') == 'inactive': st.sidebar.error("❌ Deactivated")
+        if u_data.get('status') == 'inactive': st.sidebar.error("❌ Account Deactivated")
         else: st.sidebar.error("🚫 Plan Expired")
         if st.sidebar.button("💳 Recharge Now", use_container_width=True): st.session_state.page = "recharge"; st.rerun()
         if st.sidebar.button("📞 Contact Us", use_container_width=True): st.session_state.page = "contact"; st.rerun()
@@ -261,12 +282,15 @@ def user_panel():
         if st.session_state.page == "recharge": recharge_page()
         else: contact_us_page(reason="deactivated")
         return
+
     st.sidebar.success(f"📅 {days} Days Left")
     if st.sidebar.button("💳 Recharge", use_container_width=True): st.session_state.page = "recharge"; st.rerun()
     if st.sidebar.button("📞 Contact Us", use_container_width=True): st.session_state.page = "contact"; st.rerun()
     if st.sidebar.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
+
     if st.session_state.page == "recharge": recharge_page(); return
     if st.session_state.page == "contact": contact_us_page(); return
+
     v = st.text_input("Vehicle Number").upper()
     im = st.text_input("IMEI Number", value=get_vehicle_data(v) if v else "", max_chars=15)
     st.divider()
@@ -284,6 +308,7 @@ def user_panel():
                 th.start(); th.join()
             status_area.table(pd.DataFrame(res)); time.sleep(1.0)
 
+# --- NAVIGATION ---
 if not st.session_state.logged_in: login_page()
 elif st.session_state.role == 'admin': admin_panel()
 else: user_panel()
