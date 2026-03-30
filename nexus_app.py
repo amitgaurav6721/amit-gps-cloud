@@ -9,9 +9,7 @@ from supabase import create_client, Client
 # --- CONFIG ---
 SUPABASE_URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 SUPABASE_KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW"
-QR_URL = "https://github.com/amitgaurav6721/amit-gps-cloud/blob/main/WhatsApp-Image-2026-03-30-at-23-26-19.jpg?raw=true"
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
+QR_URL = "https://raw.githubusercontent.com/amitgaurav6721/amit-gps-cloud/main/WhatsApp-Image-2026-03-30-at-23-26-19.jpg"supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.set_page_config(page_title="Bihar VLTS Pro Max", layout="wide")
 
 # --- SESSION STATE ---
