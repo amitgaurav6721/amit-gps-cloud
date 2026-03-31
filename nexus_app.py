@@ -7,6 +7,12 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="Bihar VLTS Master Control", layout="wide")
 
+# --- FIXED SETTINGS (Ab side panel ki zarurat nahi) ---
+SERVER_HOST = "vlts.bihar.gov.in"
+SERVER_PORT = 9999
+TIME_GAP = 1.0
+SIMULATE_MOVE = True
+
 # --- SUPABASE CONNECTION ---
 URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW" 
@@ -18,7 +24,7 @@ if 'authenticated' not in st.session_state:
 if 'running' not in st.session_state:
     st.session_state.running = False
 if 'imei_val' not in st.session_state:
-    st.session_state.imei_val = "" # <-- Default IMEI removed (Blank)
+    st.session_state.imei_val = ""
 if 'base_lat' not in st.session_state:
     st.session_state.base_lat = 25.6489270
 if 'base_lon' not in st.session_state:
@@ -30,7 +36,6 @@ if 'loc_name' not in st.session_state:
 if not st.session_state.authenticated:
     st.title("🔒 Bihar VLTS - Secure Access")
     st.write("Apna 4-digit Location PIN daalein portal unlock karne ke liye.")
-    
     input_pin = st.text_input("Enter Access PIN", type="password")
     
     if st.button("Unlock & Set Location", type="primary", use_container_width=True):
@@ -43,7 +48,7 @@ if not st.session_state.authenticated:
                 st.session_state.base_lon = loc_data['longitude']
                 st.session_state.loc_name = loc_data['location_name']
                 st.success(f"✅ Access Granted! Location: {st.session_state.loc_name}")
-                time.sleep(1)
+                time.sleep(0.5)
                 st.rerun()
             else:
                 st.error("❌ Invalid PIN!")
@@ -78,15 +83,10 @@ def send_raw(host, port, raw_packet):
         return True
     except: return False
 
-# --- UI DESIGN ---
+# --- UI DESIGN (CLEAN) ---
 st.title(f"🛰️ Bihar VLTS Simulator - [{st.session_state.loc_name}]")
 
-st.sidebar.header("⚙️ Server Settings")
-server_host = st.sidebar.text_input("Host IP", "vlts.bihar.gov.in")
-server_port = st.sidebar.number_input("Port", value=9999)
-gap = st.sidebar.slider("Gap (sec)", 0.1, 5.0, 1.0)
-simulate_move = st.sidebar.checkbox("🚀 Simulate Movement", value=True)
-
+# Sidebar sirf logout ke liye rakha hai taaki main screen clean rahe
 if st.sidebar.button("🔒 Logout & Lock"):
     st.session_state.authenticated = False
     st.rerun()
@@ -97,7 +97,6 @@ c1, c2 = st.columns(2)
 with c1:
     veh = st.text_input("Vehicle Number", value="", key="veh_input", on_change=fetch_imei_logic).upper().strip()
 with c2:
-    # IMEI will show value from session_state (Auto-filled or Blank)
     imei = st.text_input("IMEI Number", value=st.session_state.imei_val)
 
 st.divider()
@@ -127,7 +126,7 @@ if st.session_state.running:
     while st.session_state.running:
         dt = time.strftime("%d%m%Y,%H%M%S")
         all_strings = "" 
-        if simulate_move:
+        if SIMULATE_MOVE:
             current_lat += random.uniform(0.00010, 0.00020)
             current_lon += random.uniform(0.00010, 0.00020)
 
@@ -135,9 +134,9 @@ if st.session_state.running:
             if not st.session_state.running: break
             final_packet = f"$PVT,{current_tag},2.1.1,NR,01,L,{imei},{veh},1,{dt},{current_lat:.7f},N,{current_lon:.7f},E,{suffix},DDE3*"
             all_strings += f"🔹 [{current_tag}]: {final_packet}\n\n"
-            success = send_raw(server_host, server_port, final_packet)
+            success = send_raw(SERVER_HOST, SERVER_PORT, final_packet)
             history.insert(0, {"Time": dt.split(',')[1], "Tag": current_tag, "Status": "✅" if success else "❌"})
         
         bulk_preview.text_area("Live Data Stream:", value=all_strings, height=400)
         status_area.table(pd.DataFrame(history).head(16))
-        time.sleep(gap)
+        time.sleep(TIME_GAP)
