@@ -18,7 +18,7 @@ if 'running' not in st.session_state:
 if 'imei_val' not in st.session_state:
     st.session_state.imei_val = ""
 
-# --- AUTO-FETCH LOGIC ---
+# --- AUTO-FETCH LOGIC (FIXED: Removed rerun from callback) ---
 def fetch_imei_logic():
     v_no = st.session_state.veh_input.upper().strip()
     if v_no:
@@ -27,7 +27,6 @@ def fetch_imei_logic():
             if res.data:
                 st.session_state.imei_val = res.data[0]['imei_no']
                 st.toast(f"✅ IMEI Found: {st.session_state.imei_val}")
-                st.rerun() 
             else:
                 st.toast("❓ Vehicle not in DB", icon="⚠️")
         except Exception as e:
@@ -71,16 +70,15 @@ with tab2:
     st.info("Yahan ki gayi changes automatically simulator mein update ho jayengi.")
 
 with tab1:
-    # --- INPUTS ---
     c1, c2 = st.columns(2)
     with c1:
         veh = st.text_input("Vehicle Number", value="", key="veh_input", on_change=fetch_imei_logic).upper().strip()
     with c2:
+        # IMEI field direct session state se value lega
         imei = st.text_input("IMEI Number", value=st.session_state.imei_val)
 
     st.divider()
 
-    # --- BUTTONS ---
     if not st.session_state.running:
         if st.button("🚀 START BULK TRANSMISSION", type="primary", use_container_width=True):
             try:
@@ -98,7 +96,6 @@ with tab1:
 
 # --- EXECUTION LOOP ---
 if st.session_state.running:
-    # Note: Status table simulator tab ke andar dikhane ke liye tab1 context use karein
     with tab1:
         status_area = st.empty()
         history = []
