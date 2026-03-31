@@ -18,7 +18,7 @@ if 'authenticated' not in st.session_state:
 if 'running' not in st.session_state:
     st.session_state.running = False
 if 'imei_val' not in st.session_state:
-    st.session_state.imei_val = ""
+    st.session_state.imei_val = "" # <-- Default IMEI removed (Blank)
 if 'base_lat' not in st.session_state:
     st.session_state.base_lat = 25.6489270
 if 'base_lon' not in st.session_state:
@@ -31,17 +31,14 @@ if not st.session_state.authenticated:
     st.title("🔒 Bihar VLTS - Secure Access")
     st.write("Apna 4-digit Location PIN daalein portal unlock karne ke liye.")
     
-    input_pin = st.text_input("Enter Access PIN", type="password", help="Ye wahi PIN hai jo locations_master table mein set hai.")
+    input_pin = st.text_input("Enter Access PIN", type="password")
     
     if st.button("Unlock & Set Location", type="primary", use_container_width=True):
         try:
-            # Table se PIN match karna aur data nikalna
             res = supabase.table("locations_master").select("*").eq("access_pin", input_pin).limit(1).execute()
-            
             if res.data:
                 loc_data = res.data[0]
                 st.session_state.authenticated = True
-                # Location data ko session mein set karna
                 st.session_state.base_lat = loc_data['latitude']
                 st.session_state.base_lon = loc_data['longitude']
                 st.session_state.loc_name = loc_data['location_name']
@@ -49,12 +46,12 @@ if not st.session_state.authenticated:
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error("❌ Invalid PIN! Please check your code.")
+                st.error("❌ Invalid PIN!")
         except Exception as e:
             st.error(f"Connection Error: {e}")
     st.stop()
 
-# --- SIMULATOR LOGIC (AFTER LOGIN) ---
+# --- SIMULATOR LOGIC ---
 def fetch_imei_logic():
     v_no = st.session_state.veh_input.upper().strip()
     if v_no:
@@ -84,7 +81,6 @@ def send_raw(host, port, raw_packet):
 # --- UI DESIGN ---
 st.title(f"🛰️ Bihar VLTS Simulator - [{st.session_state.loc_name}]")
 
-# Sidebar for logout and settings
 st.sidebar.header("⚙️ Server Settings")
 server_host = st.sidebar.text_input("Host IP", "vlts.bihar.gov.in")
 server_port = st.sidebar.number_input("Port", value=9999)
@@ -95,14 +91,13 @@ if st.sidebar.button("🔒 Logout & Lock"):
     st.session_state.authenticated = False
     st.rerun()
 
-# Displaying active location (Read-only)
 st.info(f"📍 **Active Location:** {st.session_state.loc_name} | **Lat:** {st.session_state.base_lat} | **Lon:** {st.session_state.base_lon}")
 
-# Main Input Section
 c1, c2 = st.columns(2)
 with c1:
     veh = st.text_input("Vehicle Number", value="", key="veh_input", on_change=fetch_imei_logic).upper().strip()
 with c2:
+    # IMEI will show value from session_state (Auto-filled or Blank)
     imei = st.text_input("IMEI Number", value=st.session_state.imei_val)
 
 st.divider()
