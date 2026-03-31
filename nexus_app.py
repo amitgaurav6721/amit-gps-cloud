@@ -7,6 +7,25 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="Bihar VLTS Master Control", layout="wide")
 
+# --- LOGIN LOGIC ---
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+# Yahan apna man-pasand PIN set karein
+CORRECT_PIN = "1234" 
+
+if not st.session_state.authenticated:
+    st.title("🔒 Security Check")
+    pin_input = st.text_input("Enter Access Code to Continue", type="password")
+    if st.button("Unlock Simulator"):
+        if pin_input == CORRECT_PIN:
+            st.session_state.authenticated = True
+            st.success("Access Granted!")
+            st.rerun()
+        else:
+            st.error("Invalid Code! Please try again.")
+    st.stop() # Jab tak login nahi hoga, niche ka code nahi chalega
+
 # --- SUPABASE CONNECTION ---
 URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
 KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW" 
@@ -18,7 +37,7 @@ if 'running' not in st.session_state:
 if 'imei_val' not in st.session_state:
     st.session_state.imei_val = ""
 
-# --- AUTO-FETCH LOGIC (FIXED: Removed rerun from callback) ---
+# --- AUTO-FETCH LOGIC ---
 def fetch_imei_logic():
     v_no = st.session_state.veh_input.upper().strip()
     if v_no:
@@ -57,6 +76,11 @@ server_port = st.sidebar.number_input("Port", value=9999)
 gap = st.sidebar.slider("Gap (sec)", 0.1, 5.0, 1.0)
 simulate_move = st.sidebar.checkbox("🚀 Simulate Movement", value=True)
 
+# Logout button in sidebar
+if st.sidebar.button("🔒 Logout"):
+    st.session_state.authenticated = False
+    st.rerun()
+
 # --- TABS SECTIONS ---
 tab1, tab2 = st.tabs(["📲 Main Simulator", "📍 Location Settings"])
 
@@ -67,14 +91,12 @@ with tab2:
         base_lat = st.number_input("Starting Latitude", value=25.6489270, format="%.7f")
     with col_l2:
         base_lon = st.number_input("Starting Longitude", value=84.7841180, format="%.7f")
-    st.info("Yahan ki gayi changes automatically simulator mein update ho jayengi.")
 
 with tab1:
     c1, c2 = st.columns(2)
     with c1:
         veh = st.text_input("Vehicle Number", value="", key="veh_input", on_change=fetch_imei_logic).upper().strip()
     with c2:
-        # IMEI field direct session state se value lega
         imei = st.text_input("IMEI Number", value=st.session_state.imei_val)
 
     st.divider()
