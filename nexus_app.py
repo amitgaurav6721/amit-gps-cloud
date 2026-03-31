@@ -9,36 +9,20 @@ st.set_page_config(page_title="Bihar VLTS Master Control", layout="wide")
 
 # --- SUPABASE CONNECTION ---
 URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
-KEY = "YOUR_ACTUAL_ANON_KEY" # Apni asli key yahan rehne dena
+# ⚠️ BHAI YAHAN APNI ANON KEY PASTE KARNA ZAROORI HAI
+KEY = "PASTE_YOUR_ACTUAL_ANON_KEY_HERE" 
 supabase: Client = create_client(URL, KEY)
 
 if 'running' not in st.session_state:
     st.session_state.running = False
-if 'imei_val' not in st.session_state:
-    st.session_state.imei_val = "860560068639352"
 
-# --- FUNCTION: AUTO-FETCH IMEI ---
-def fetch_imei():
-    v_no = st.session_state.veh_input.upper().strip()
-    if v_no:
-        try:
-            # vehicle_master se IMEI nikaalna
-            res = supabase.table("vehicle_master").select("imei_no").eq("vehicle_no", v_no).limit(1).execute()
-            if res.data:
-                st.session_state.imei_val = res.data[0]['imei_no']
-                st.toast(f"✅ IMEI Found for {v_no}", icon="🔍")
-            else:
-                st.toast("⚠️ Vehicle not in DB", icon="❓")
-        except:
-            pass
-
-# --- TAG LIST ---
 TAG_LIST = ["RA18", "WTEX", "MARK", "ASPL", "LOCT14A", "ACT1", "AIS140", "VLTD", "VLT", "GPS", "AMAZON", "BBOX77", "EGAS", "MENT", "MIJO", "EMR"]
 
 def send_raw(host, port, raw_packet):
     try:
         final_to_send = raw_packet + " \r \n "
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         s.settimeout(5)
         s.connect((host, port))
         s.sendall(final_to_send.encode('ascii'))
@@ -50,13 +34,10 @@ def send_raw(host, port, raw_packet):
 
 st.title("🛰️ Bihar VLTS Multi-Tag Simulator")
 
-# --- INPUTS ---
 c1, c2 = st.columns(2)
 with c1:
-    # Vehicle input with on_change trigger
-    veh = st.text_input("Vehicle", value="BR29GC1365", key="veh_input", on_change=fetch_imei).upper().strip()
-    # IMEI value session_state se aayegi
-    imei = st.text_input("IMEI", value=st.session_state.imei_val)
+    imei = st.text_input("IMEI", "860560068639352")
+    veh = st.text_input("Vehicle", "BR29GC1365")
 with c2:
     base_lat = st.number_input("Starting Latitude", value=25.6489270, format="%.7f")
     base_lon = st.number_input("Starting Longitude", value=84.7841180, format="%.7f")
@@ -64,10 +45,13 @@ with c2:
 # --- BUTTONS ---
 if not st.session_state.running:
     if st.button("🚀 START BULK TRANSMISSION", type="primary", use_container_width=True):
-        # Naya data bhi store kar lete hain agar pehle se nahi hai
+        # 🛠️ DATABASE INSERT WITH ERROR LOG
         try:
-            supabase.table("vehicle_master").upsert({"vehicle_no": veh, "imei_no": imei}, on_conflict="vehicle_no").execute()
-        except: pass
+            res = supabase.table("vehicle_master").insert({"vehicle_no": veh, "imei_no": imei}).execute()
+            st.toast(f"✅ DB Store: {veh} Saved!", icon="💾")
+        except Exception as db_e:
+            st.error(f"❌ Database Error: {db_e}")
+        
         st.session_state.running = True
         st.rerun()
 else:
@@ -90,7 +74,7 @@ if st.session_state.running:
             if not st.session_state.running: break
             final_packet = f"$PVT,{current_tag},2.1.1,NR,01,L,{imei},{veh},1,{dt},{base_lat:.7f},N,{base_lon:.7f},E,{suffix},DDE3*"
             all_strings += f"🔹 [{current_tag}]: {final_packet}\n\n"
-            success, _ = send_raw("vlts.bihar.gov.in", 9999, final_packet)
+            success, msg = send_raw("vlts.bihar.gov.in", 9999, final_packet)
             history.insert(0, {"Time": dt.split(',')[1], "Tag": current_tag, "Status": "✅" if success else "❌"})
         
         bulk_preview.text_area("Live Data Stream:", value=all_strings, height=400)
