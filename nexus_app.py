@@ -46,14 +46,14 @@ if not st.session_state.authenticated:
                 st.session_state.loc_name = loc['location_name']
                 st.rerun()
             else: st.error("Invalid PIN!")
-        except: st.error("DB Error")
+        except: st.error("DB Error: Check Supabase Connection")
     st.stop()
 
 # --- SIDEBAR MAP ---
 with st.sidebar:
     st.subheader(f"📍 {st.session_state.loc_name}")
-    map_data = pd.DataFrame({'lat': [st.session_state.base_lat], 'lon': [st.session_state.base_lon]})
-    st.map(map_data, zoom=12)
+    map_df = pd.DataFrame({'lat': [st.session_state.base_lat], 'lon': [st.session_state.base_lon]})
+    st.map(map_df, zoom=12)
 
 # --- MAIN UI ---
 col_title, col_logout = st.columns([0.85, 0.15])
@@ -66,12 +66,14 @@ with col_logout:
 
 st.info(f"📍 **Location:** {st.session_state.loc_name} | **Lat:** {st.session_state.base_lat} | **Lon:** {st.session_state.base_lon}")
 
-# Inputs
+# Inputs & Auto-fetch
 def fetch_imei():
     v = st.session_state.veh_input.upper().strip()
     if v:
-        res = supabase.table("vehicle_master").select("imei_no").eq("vehicle_no", v).limit(1).execute()
-        if res.data: st.session_state.imei_val = res.data[0]['imei_no']
+        try:
+            res = supabase.table("vehicle_master").select("imei_no").eq("vehicle_no", v).limit(1).execute()
+            if res.data: st.session_state.imei_val = res.data[0]['imei_no']
+        except: pass
 
 c1, c2 = st.columns(2)
 with c1:
@@ -81,21 +83,28 @@ with c2:
 
 st.divider()
 
-# Controls
+# Controls & Data Storage
 if not st.session_state.running:
     if st.button("🚀 START TRANSMISSION", type="primary", use_container_width=True):
-        st.session_state.running = True
-        st.rerun()
+        if veh and imei:
+            try:
+                # Store in vehicle_master on Start
+                supabase.table("vehicle_master").upsert({"vehicle_no": veh, "imei_no": imei}, on_conflict="vehicle_no").execute()
+                st.session_state.running = True
+                st.rerun()
+            except Exception as e:
+                st.error(f"DB Error while storing: {e}")
+        else:
+            st.warning("Please enter both Vehicle and IMEI number.")
 else:
     if st.button("🛑 STOP TRANSMISSION", type="secondary", use_container_width=True):
         st.session_state.running = False
         st.rerun()
 
-# --- EXECUTION (ONLY PROGRESS BAR) ---
+# --- EXECUTION ---
 if st.session_state.running:
     progress_text = st.empty()
     progress_bar = st.progress(0)
-    
     curr_lat, curr_lon = st.session_state.base_lat, st.session_state.base_lon
     TAGS = ["RA18", "WTEX", "MARK", "ASPL", "LOCT14A", "ACT1", "AIS140", "VLTD", "VLT", "GPS", "AMAZON", "BBOX77", "EGAS", "MENT", "MIJO", "EMR"]
     suffix = "0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
@@ -108,14 +117,11 @@ if st.session_state.running:
             
         for i, t in enumerate(TAGS):
             if not st.session_state.running: break
-            
-            # Progress update
             percent = int((i + 1) / len(TAGS) * 100)
             progress_bar.progress(percent)
             progress_text.markdown(f"**⚡ Current Activity:** Sending Tag `{t}`... ({percent}%)")
             
-            # Simulated Packet Send
-            # (Yahan socket ka code as-is rahega)
+            # Socket Send (Simulated here, add actual socket logic if needed)
             time.sleep(0.05) 
             
         time.sleep(TIME_GAP)
