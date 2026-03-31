@@ -10,7 +10,7 @@ st.set_page_config(page_title="Bihar VLTS Master Control", layout="wide")
 # --- SUPABASE CONNECTION ---
 # Inhe apne original database.py ya credentials se match kar lena
 URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
-KEY = "YOUR_SUPABASE_ANON_KEY" # Yahan apni anon key daal dena
+KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW" # Yahan apni anon key daal dena
 supabase: Client = create_client(URL, KEY)
 
 if 'running' not in st.session_state:
