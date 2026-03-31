@@ -9,7 +9,7 @@ st.set_page_config(page_title="Bihar VLTS Master Control", layout="wide")
 
 # --- SUPABASE CONNECTION ---
 URL = "https://grdgexcjyrhkoffimsuw.supabase.co"
-# ⚠️ BHAI, YAHAN APNI KEY DAALO VARNA AUTO-FILL NAHI CHALEGA
+# Teri current key (Maine wahi rakhi hai jo tune upar di hai)
 KEY = "sb_publishable_48s5EvLGqu_gLXDxmRiqMQ_E34kVKqW" 
 supabase: Client = create_client(URL, KEY)
 
@@ -19,7 +19,7 @@ if 'running' not in st.session_state:
 if 'imei_val' not in st.session_state:
     st.session_state.imei_val = ""
 
-# --- AUTO-FETCH LOGIC ---
+# --- AUTO-FETCH LOGIC (FIXED) ---
 def fetch_imei_logic():
     v_no = st.session_state.veh_input.upper().strip()
     if v_no:
@@ -28,6 +28,8 @@ def fetch_imei_logic():
             if res.data:
                 st.session_state.imei_val = res.data[0]['imei_no']
                 st.toast(f"✅ IMEI Found: {st.session_state.imei_val}")
+                # Rerun zaroori hai taaki IMEI box turant bhar jaye
+                st.rerun() 
             else:
                 st.toast("❓ Vehicle not in DB", icon="⚠️")
         except Exception as e:
@@ -62,7 +64,7 @@ simulate_move = st.sidebar.checkbox("🚀 Simulate Movement", value=True)
 c1, c2 = st.columns(2)
 with c1:
     veh = st.text_input("Vehicle", value="", key="veh_input", on_change=fetch_imei_logic).upper().strip()
-    # Dynamic value update for IMEI
+    # IMEI value session_state se sync kar di
     imei = st.text_input("IMEI", value=st.session_state.imei_val)
 
 with c2:
