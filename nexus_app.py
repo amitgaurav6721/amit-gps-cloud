@@ -51,14 +51,12 @@ if not st.session_state.authenticated:
 
 # --- SIDEBAR MAP ---
 with st.sidebar:
-    st.subheader(f"📍 {st.session_state.loc_name} Map")
-    # Map display
+    st.subheader(f"📍 {st.session_state.loc_name}")
     map_data = pd.DataFrame({'lat': [st.session_state.base_lat], 'lon': [st.session_state.base_lon]})
     st.map(map_data, zoom=12)
-    st.info("Simulation mode: Active 🚀")
+    st.info("Status: System Ready")
 
 # --- MAIN UI ---
-# Top Header with Logout
 col_title, col_logout = st.columns([0.85, 0.15])
 with col_title:
     st.title(f"🛰️ Bihar VLTS Simulator")
@@ -69,7 +67,7 @@ with col_logout:
 
 st.info(f"📍 **Location:** {st.session_state.loc_name} | **Lat:** {st.session_state.base_lat} | **Lon:** {st.session_state.base_lon}")
 
-# Inputs
+# Inputs logic
 def fetch_imei():
     v = st.session_state.veh_input.upper().strip()
     if v:
@@ -84,19 +82,20 @@ with c2:
 
 st.divider()
 
-# Controls
+# Simulation Controls
 if not st.session_state.running:
-    if st.button("🚀 START BULK TRANSMISSION", type="primary", use_container_width=True):
+    if st.button("🚀 START TRANSMISSION", type="primary", use_container_width=True):
         st.session_state.running = True
         st.rerun()
 else:
-    if st.button("🛑 STOP IMMEDIATELY", type="secondary", use_container_width=True):
+    if st.button("🛑 STOP TRANSMISSION", type="secondary", use_container_width=True):
         st.session_state.running = False
         st.rerun()
 
-# Execution & Monitor
+# --- EXECUTION & PROGRESS BAR ---
 if st.session_state.running:
-    bulk_preview = st.empty()
+    st.write("### ⚙️ Transmission in Progress...")
+    progress_bar = st.progress(0) # Progress bar initialize
     status_area = st.empty()
     history = []
     curr_lat, curr_lon = st.session_state.base_lat, st.session_state.base_lon
@@ -105,17 +104,25 @@ if st.session_state.running:
     
     while st.session_state.running:
         dt = time.strftime("%d%m%Y,%H%M%S")
-        all_txt = ""
         if SIMULATE_MOVE:
             curr_lat += random.uniform(0.0001, 0.0002)
             curr_lon += random.uniform(0.0001, 0.0002)
             
-        for t in TAGS:
+        for i, t in enumerate(TAGS):
+            if not st.session_state.running: break
+            
+            # Progress bar update (Tag wise)
+            percent_complete = int((i + 1) / len(TAGS) * 100)
+            progress_bar.progress(percent_complete)
+            
             pkt = f"$PVT,{t},2.1.1,NR,01,L,{imei},{veh},1,{dt},{curr_lat:.7f},N,{curr_lon:.7f},E,{suffix},DDE3*"
-            all_txt += f"🔹 [{t}]: {pkt}\n\n"
-            # Connection logic (Dummy for speed, replace with socket call if needed)
-            history.insert(0, {"Time": dt.split(',')[1], "Tag": t, "Status": "✅"})
+            
+            # Socket connection (Simulated)
+            history.insert(0, {"Time": dt.split(',')[1], "Tag": t, "Status": "✅ Sent"})
         
-        bulk_preview.text_area("Live Data Stream:", value=all_txt, height=300)
+        # Reset progress for next loop
+        time.sleep(0.2)
+        progress_bar.progress(0)
+        
         status_area.table(pd.DataFrame(history).head(10))
         time.sleep(TIME_GAP)
