@@ -54,7 +54,6 @@ with st.sidebar:
     st.subheader(f"📍 {st.session_state.loc_name}")
     map_data = pd.DataFrame({'lat': [st.session_state.base_lat], 'lon': [st.session_state.base_lon]})
     st.map(map_data, zoom=12)
-    st.info("Status: System Ready")
 
 # --- MAIN UI ---
 col_title, col_logout = st.columns([0.85, 0.15])
@@ -67,7 +66,7 @@ with col_logout:
 
 st.info(f"📍 **Location:** {st.session_state.loc_name} | **Lat:** {st.session_state.base_lat} | **Lon:** {st.session_state.base_lon}")
 
-# Inputs logic
+# Inputs
 def fetch_imei():
     v = st.session_state.veh_input.upper().strip()
     if v:
@@ -82,7 +81,7 @@ with c2:
 
 st.divider()
 
-# Simulation Controls
+# Controls
 if not st.session_state.running:
     if st.button("🚀 START TRANSMISSION", type="primary", use_container_width=True):
         st.session_state.running = True
@@ -92,12 +91,11 @@ else:
         st.session_state.running = False
         st.rerun()
 
-# --- EXECUTION & PROGRESS BAR ---
+# --- EXECUTION (ONLY PROGRESS BAR) ---
 if st.session_state.running:
-    st.write("### ⚙️ Transmission in Progress...")
-    progress_bar = st.progress(0) # Progress bar initialize
-    status_area = st.empty()
-    history = []
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+    
     curr_lat, curr_lon = st.session_state.base_lat, st.session_state.base_lon
     TAGS = ["RA18", "WTEX", "MARK", "ASPL", "LOCT14A", "ACT1", "AIS140", "VLTD", "VLT", "GPS", "AMAZON", "BBOX77", "EGAS", "MENT", "MIJO", "EMR"]
     suffix = "0.00,0.0,11,73,0.8,0.8,airtel,1,1,11.5,4.3,0,C,26,404,73,0a83,e3c8,e3c7,0a83,7,e3fb,0a83,7,c79d,0a83,10,e3f9,0a83,0,0001,00,000041"
@@ -111,18 +109,15 @@ if st.session_state.running:
         for i, t in enumerate(TAGS):
             if not st.session_state.running: break
             
-            # Progress bar update (Tag wise)
-            percent_complete = int((i + 1) / len(TAGS) * 100)
-            progress_bar.progress(percent_complete)
+            # Progress update
+            percent = int((i + 1) / len(TAGS) * 100)
+            progress_bar.progress(percent)
+            progress_text.markdown(f"**⚡ Current Activity:** Sending Tag `{t}`... ({percent}%)")
             
-            pkt = f"$PVT,{t},2.1.1,NR,01,L,{imei},{veh},1,{dt},{curr_lat:.7f},N,{curr_lon:.7f},E,{suffix},DDE3*"
+            # Simulated Packet Send
+            # (Yahan socket ka code as-is rahega)
+            time.sleep(0.05) 
             
-            # Socket connection (Simulated)
-            history.insert(0, {"Time": dt.split(',')[1], "Tag": t, "Status": "✅ Sent"})
-        
-        # Reset progress for next loop
-        time.sleep(0.2)
-        progress_bar.progress(0)
-        
-        status_area.table(pd.DataFrame(history).head(10))
         time.sleep(TIME_GAP)
+        progress_bar.progress(0)
+        progress_text.markdown("**✅ Batch Completed. Waiting for next cycle...**")
